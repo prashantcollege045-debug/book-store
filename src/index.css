@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/* Custom smooth scroll and reading utilities */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom styling for reading mode */
+.reader-light {
+  background-color: #ffffff;
+  color: #1e293b;
+}
+
+.reader-sepia {
+  background-color: #fbf0d9;
+  color: #5f4b32;
+}
+
+.reader-dark {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
