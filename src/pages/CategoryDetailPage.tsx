@@ -1,22 +1,23 @@
 import React, { useState, useMemo } from 'react';
 import { ArrowLeft, Layers, BookOpen, RotateCcw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { CATEGORIES_DATA } from '../data/categoriesData';
 import { BookCard } from '../components/BookCard';
 import { SortOption } from '../types';
 
 export const CategoryDetailPage: React.FC = () => {
-  const { selectedCategorySlug, selectedCategory, navigateTo, allBooks } = useApp();
+  const { selectedCategorySlug, selectedCategory, navigateTo, allBooks, allCategories } = useApp();
   const [filterType, setFilterType] = useState<'ALL' | 'FREE' | 'PREMIUM'>('ALL');
   const [filterLanguage, setFilterLanguage] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<SortOption>('rating');
 
   // Find category object
-  const category = CATEGORIES_DATA.find(
-    c =>
-      c.slug === selectedCategorySlug ||
-      c.name.toLowerCase() === selectedCategory.toLowerCase()
-  ) || CATEGORIES_DATA[0];
+  const category = (allCategories && allCategories.length > 0)
+    ? (allCategories.find(
+        c =>
+          c.slug?.toLowerCase() === (selectedCategorySlug || '').toLowerCase() ||
+          c.name?.toLowerCase() === (selectedCategory || '').toLowerCase()
+      ) || allCategories[0])
+    : { id: 'default', name: 'Computer Science', slug: 'computer-science', description: 'Academic books and resources.', icon: 'BookOpen', bookCount: 0 };
 
   // Filter books matching this category
   const categoryBooks = useMemo(() => {

@@ -13,6 +13,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AdminPage } from './pages/AdminPage';
+import { AdminPaymentGatewayPage } from './pages/AdminPaymentGatewayPage';
 import { ReaderPage } from './pages/ReaderPage';
 import { PaymentDemoPage } from './pages/PaymentDemoPage';
 import { PurchaseHistoryPage } from './pages/PurchaseHistoryPage';
@@ -56,6 +57,8 @@ const AppContent: React.FC = () => {
         return <ProfilePage />;
       case 'admin':
         return <AdminPage />;
+      case 'admin-payment-gateway':
+        return <AdminPaymentGatewayPage />;
       default:
         return <HomePage />;
     }

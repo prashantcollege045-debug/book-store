@@ -3,13 +3,15 @@ import {
   ActivePage, 
   AdminTab, 
   Book, 
+  Category,
   LibraryItem, 
   PurchaseRecord, 
   SortOption, 
   UserProfile 
 } from '../types';
 import { BOOKS_DATA } from '../data/booksData';
-import { authService, wishlistService, BookService } from '../services/api';
+import { CATEGORIES_DATA } from '../data/categoriesData';
+import { authService, wishlistService, BookService, categoryService } from '../services/api';
 
 export interface Toast {
   id: string;
@@ -58,6 +60,9 @@ interface AppContextType {
   getBookById: (id: string) => Book | undefined;
   adminBookToEdit: Book | null;
   setAdminBookToEdit: (book: Book | null) => void;
+  allCategories: Category[];
+  refreshCategories: () => Promise<void>;
+  getCategoryBySlug: (slug: string) => Category | undefined;
 
   // Wishlist (User-Isolated)
   wishlistIds: string[];
@@ -230,6 +235,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (path === '/profile') {
       return { page: 'profile' as ActivePage };
     }
+    if (path === '/admin/payment-gateway' || path === '/admin/payment-gateways') {
+      return { page: 'admin-payment-gateway' as ActivePage };
+    }
     if (path.startsWith('/admin')) {
       return { page: 'admin' as ActivePage };
     }
@@ -363,6 +371,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [allBooks, setAllBooks] = useState<Book[]>(BOOKS_DATA);
   const [adminBookToEdit, setAdminBookToEdit] = useState<Book | null>(null);
 
+  // Dynamic Categories State
+  const [allCategories, setAllCategories] = useState<Category[]>(CATEGORIES_DATA);
+
+  const refreshCategories = useCallback(async () => {
+    try {
+      const cats = await categoryService.getCategories();
+      if (cats && cats.length > 0) {
+        setAllCategories(cats);
+      }
+    } catch {
+      // Fallback
+    }
+  }, []);
+
   const refreshBooks = useCallback(async () => {
     try {
       const books = await BookService.getBooks();
@@ -376,7 +398,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     refreshBooks();
-  }, [refreshBooks]);
+    refreshCategories();
+  }, [refreshBooks, refreshCategories]);
+
+  const getCategoryBySlug = useCallback((slug: string) => {
+    return allCategories.find(c => c.slug.toLowerCase() === slug.toLowerCase());
+  }, [allCategories]);
 
   const getBookById = useCallback((id: string) => {
     return allBooks.find(b => b.id === id);
@@ -495,6 +522,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       routePath = '/profile';
     } else if (page === 'admin') {
       routePath = '/admin';
+    } else if (page === 'admin-payment-gateway') {
+      routePath = '/admin/payment-gateway';
     } else if (page === 'login') {
       routePath = '/login';
     } else if (page === 'register') {
@@ -705,6 +734,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getBookById,
         adminBookToEdit,
         setAdminBookToEdit,
+        allCategories,
+        refreshCategories,
+        getCategoryBySlug,
         wishlistIds,
         toggleWishlist,
         isInWishlist,

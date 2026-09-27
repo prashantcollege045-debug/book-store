@@ -1,22 +1,8 @@
 import React from 'react';
-import { 
-  Code2, 
-  Binary, 
-  Globe, 
-  Database, 
-  Bot, 
-  BrainCircuit, 
-  ShieldCheck, 
-  Network, 
-  LineChart, 
-  Sigma, 
-  GitBranch, 
-  Boxes,
-  ArrowRight,
-  BookOpen
-} from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Category } from '../types';
 import { useApp } from '../context/AppContext';
+import { renderCategoryIcon } from './CategoryIconSelector';
 
 interface CategoryCardProps {
   category: Category;
@@ -25,38 +11,6 @@ interface CategoryCardProps {
 
 export const CategoryCard: React.FC<CategoryCardProps> = ({ category, compact = false }) => {
   const { navigateTo, setSelectedCategory } = useApp();
-
-  const getIcon = () => {
-    const props = { className: compact ? 'w-5 h-5' : 'w-6 h-6 text-indigo-600 dark:text-indigo-400' };
-    switch (category.icon) {
-      case 'Code2':
-        return <Code2 {...props} />;
-      case 'Binary':
-        return <Binary {...props} />;
-      case 'Globe':
-        return <Globe {...props} />;
-      case 'Database':
-        return <Database {...props} />;
-      case 'Bot':
-        return <Bot {...props} />;
-      case 'BrainCircuit':
-        return <BrainCircuit {...props} />;
-      case 'ShieldCheck':
-        return <ShieldCheck {...props} />;
-      case 'Network':
-        return <Network {...props} />;
-      case 'LineChart':
-        return <LineChart {...props} />;
-      case 'Sigma':
-        return <Sigma {...props} />;
-      case 'GitBranch':
-        return <GitBranch {...props} />;
-      case 'Boxes':
-        return <Boxes {...props} />;
-      default:
-        return <BookOpen {...props} />;
-    }
-  };
 
   const handleClick = () => {
     setSelectedCategory(category.name);
@@ -70,7 +24,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category, compact = 
         className="flex items-center gap-2.5 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-400 dark:hover:border-indigo-600 hover:shadow-xs transition-all text-left cursor-pointer group"
       >
         <div className="p-2 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 shrink-0 group-hover:scale-105 transition-transform">
-          {getIcon()}
+          {renderCategoryIcon(category.icon, 'w-5 h-5')}
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
@@ -90,9 +44,9 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({ category, compact = 
       className="group relative flex flex-col justify-between p-5 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-lg transition-all duration-200 cursor-pointer"
     >
       <div>
-        <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-200">
+        <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white text-indigo-600 dark:text-indigo-400 transition-colors duration-200">
           <div className="group-hover:text-white transition-colors">
-            {getIcon()}
+            {renderCategoryIcon(category.icon, 'w-6 h-6')}
           </div>
         </div>
 

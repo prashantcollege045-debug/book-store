@@ -6,7 +6,11 @@ import {
   getUserOrders, 
   getOrderById, 
   checkUserBookAccess,
-  getBookById
+  getBookById,
+  getPublicGateways,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  cancelOrder,
 } from '../store';
 
 const router = Router();
@@ -116,6 +120,121 @@ router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> 
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to fetch purchase history',
+    });
+  }
+});
+
+/**
+ * GET /api/orders/gateways
+ * Phase 10A: Retrieve active payment gateways for checkout
+ */
+router.get('/gateways', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const publicGateways = await getPublicGateways();
+    res.status(200).json({
+      success: true,
+      data: publicGateways,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch active gateways',
+    });
+  }
+});
+
+/**
+ * POST /api/orders/razorpay/create-order
+ * Phase 10B: Create server-authenticated Razorpay Test Order
+ */
+router.post('/razorpay/create-order', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { bookId } = req.body;
+    if (!bookId) {
+      res.status(400).json({ success: false, message: 'bookId is required' });
+      return;
+    }
+
+    const userId = req.user!.id;
+    const orderData = await createRazorpayOrder(userId, bookId);
+
+    res.status(201).json({
+      success: true,
+      message: 'Razorpay order created successfully',
+      data: orderData,
+    });
+  } catch (error: any) {
+    if (error.code === 'ALREADY_PURCHASED') {
+      res.status(409).json({
+        success: false,
+        code: 'ALREADY_PURCHASED',
+        message: 'You have already purchased this book and have full access.',
+        bookId: error.bookId,
+      });
+      return;
+    }
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to create Razorpay order',
+    });
+  }
+});
+
+/**
+ * POST /api/orders/razorpay/verify-payment
+ * Phase 10B: Server-side cryptographic HMAC SHA-256 verification
+ */
+router.post('/razorpay/verify-payment', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    if (!orderId || !razorpay_payment_id) {
+      res.status(400).json({
+        success: false,
+        message: 'Missing orderId or razorpay_payment_id in verification payload',
+      });
+      return;
+    }
+
+    const userId = req.user!.id;
+    const verifiedOrder = await verifyRazorpayPayment(userId, {
+      orderId,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment successful. The book has been added to your library.',
+      data: verifiedOrder,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Payment failed. No premium access was granted.',
+    });
+  }
+});
+
+/**
+ * POST /api/orders/:orderId/cancel
+ * Phase 10B: Cancel an in-progress or dismissed order
+ */
+router.post('/:orderId/cancel', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user!.id;
+    const cancelled = await cancelOrder(userId, orderId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment cancelled.',
+      data: cancelled,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to cancel order',
     });
   }
 });

@@ -74,13 +74,27 @@ export const CATEGORIES_BASE: Omit<Category, 'bookCount'>[] = [
   },
   {
     id: 'cat-11',
+    name: 'Cloud Computing',
+    slug: 'cloud-computing',
+    description: 'Serverless architectures, containerization, Kubernetes, AWS, GCP, microservices, and DevOps automation.',
+    icon: 'Cloud',
+  },
+  {
+    id: 'cat-12',
+    name: 'Operating Systems',
+    slug: 'operating-systems',
+    description: 'Kernel internals, process scheduling, memory virtualization, POSIX threads, and file system mechanics.',
+    icon: 'Cpu',
+  },
+  {
+    id: 'cat-13',
     name: 'Mathematics',
     slug: 'mathematics',
     description: 'Linear algebra, multivariate calculus, graph theory, probability, and numerical analysis for engineers.',
     icon: 'Sigma',
   },
   {
-    id: 'cat-12',
+    id: 'cat-14',
     name: 'Other',
     slug: 'other',
     description: 'Tech ethics, IT project management, quantum computing foundations, and career guides for students.',

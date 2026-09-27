@@ -11,6 +11,8 @@ import wishlistRouter from './server/routes/wishlist';
 import booksRouter from './server/routes/books';
 import categoriesRouter from './server/routes/categories';
 import ordersRouter from './server/routes/orders';
+import paymentsRouter from './server/routes/payments';
+import aiRouter from './server/routes/ai';
 
 dotenv.config();
 
@@ -37,6 +39,8 @@ async function startServer() {
   app.use('/api/books', booksRouter);
   app.use('/api/categories', categoriesRouter);
   app.use('/api/orders', ordersRouter);
+  app.use('/api/payments', paymentsRouter);
+  app.use('/api/ai', aiRouter);
 
   // Health and System Info Endpoint
   app.get('/api/health', (req, res) => {

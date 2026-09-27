@@ -23,12 +23,15 @@ import {
   CheckCircle2,
   Trash2,
   Share2,
-  FileText
+  FileText,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BookService } from '../services/api';
 import { Book, BookmarkItem } from '../types';
 import { BookCover } from '../components/BookCover';
+import { AIReaderAssistantModal } from '../components/AIReaderAssistantModal';
 
 declare global {
   interface Window {
@@ -74,6 +77,7 @@ export const ReaderPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResultsCount, setSearchResultsCount] = useState<number | null>(null);
   const [downloading, setDownloading] = useState<boolean>(false);
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState<boolean>(false);
 
   // PDF.js references
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -646,6 +650,17 @@ export const ReaderPage: React.FC = () => {
               Fit Width
             </button>
 
+            {/* Feature 5: Ask AI Reader Assistant */}
+            <button
+              type="button"
+              onClick={() => setIsAIAssistantOpen(true)}
+              className="px-2.5 py-1.5 rounded-lg border border-purple-300 dark:border-purple-800 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+              title="Ask AI to explain, summarize, or simplify current reading"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+              <span>Ask AI</span>
+            </button>
+
             {/* Light / Sepia / Dark Theme Mode */}
             <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
               <button
@@ -816,6 +831,23 @@ export const ReaderPage: React.FC = () => {
           </span>
         </div>
       </footer>
+
+      {/* Feature 5 Modal: AI Reading Companion */}
+      {book && (
+        <AIReaderAssistantModal
+          bookId={book.id}
+          bookTitle={book.title}
+          chapterTitle={book.chapters?.[currentPage - 1]?.title || book.chapters?.[0]?.title || `Page ${currentPage}`}
+          currentSnippet={
+            book.chapters?.[currentPage - 1]?.content?.join('\n') ||
+            book.chapters?.[0]?.content?.join('\n') ||
+            book.description ||
+            `Current textbook reading page ${currentPage}`
+          }
+          isOpen={isAIAssistantOpen}
+          onClose={() => setIsAIAssistantOpen(false)}
+        />
+      )}
     </div>
   );
 };

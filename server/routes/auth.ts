@@ -1,5 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { createUser, findUserByEmail } from '../store';
+import { 
+  createUser, 
+  findUserByEmail, 
+  updateUserProfileName, 
+  changeUserPassword, 
+  getUserProfileStats 
+} from '../store';
 import { authenticateUser, generateToken, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();

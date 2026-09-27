@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
+export type PaymentStatus = 'PENDING' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED';
 
 export interface IOrder extends Document {
   orderId: string;
@@ -12,6 +12,11 @@ export interface IOrder extends Document {
   paymentStatus: PaymentStatus;
   paymentMethod?: string;
   paymentReference?: string;
+  gateway?: string;
+  isTestMode?: boolean;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  razorpaySignature?: string;
   failureReason?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -49,7 +54,7 @@ const OrderSchema = new Schema<IOrder>(
     },
     paymentStatus: {
       type: String,
-      enum: ['PENDING', 'PAID', 'FAILED', 'CANCELLED'],
+      enum: ['PENDING', 'PROCESSING', 'PAID', 'FAILED', 'CANCELLED', 'REFUNDED'],
       default: 'PENDING',
       index: true,
     },
@@ -58,6 +63,27 @@ const OrderSchema = new Schema<IOrder>(
       default: 'TEST_UPI',
     },
     paymentReference: {
+      type: String,
+      default: '',
+    },
+    gateway: {
+      type: String,
+      default: 'sandbox',
+      index: true,
+    },
+    isTestMode: {
+      type: Boolean,
+      default: true,
+    },
+    razorpayOrderId: {
+      type: String,
+      default: '',
+    },
+    razorpayPaymentId: {
+      type: String,
+      default: '',
+    },
+    razorpaySignature: {
       type: String,
       default: '',
     },

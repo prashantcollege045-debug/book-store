@@ -13,13 +13,19 @@ import {
   Eye,
   CheckCircle2,
   Tag,
-  Loader2
+  Loader2,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BookCover } from '../components/BookCover';
 import { Badge } from '../components/Badge';
 import { BookCard } from '../components/BookCard';
 import { BookService } from '../services/api';
+import { AIBookAssistantModal } from '../components/AIBookAssistantModal';
+import { AIBookSummaryCard } from '../components/AIBookSummaryCard';
+import { AIBookDetailsChat } from '../components/AIBookDetailsChat';
+import { AIRecommendationsSection } from '../components/AIRecommendationsSection';
 
 export const BookDetailsPage: React.FC = () => {
   const { 
@@ -36,9 +42,10 @@ export const BookDetailsPage: React.FC = () => {
     purchaseHistory
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'toc' | 'details'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'ai-chat' | 'ai-summary' | 'toc' | 'details'>('overview');
   const [downloading, setDownloading] = useState(false);
   const [hasPurchasedAccess, setHasPurchasedAccess] = useState(false);
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
 
   const book = allBooks.find(b => b.id === selectedBookId) || allBooks[0];
   const isWishlisted = isInWishlist(book.id);
@@ -277,10 +284,19 @@ export const BookDetailsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Action Buttons: 
-                For FREE or PURCHASED: [Read Now], [Free Download]
-                For UNPURCHASED PREMIUM: [Buy Now], [Add to Wishlist] */}
+            {/* Action Buttons */}
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              {/* Feature 3: Ask AI About This Book */}
+              <button
+                type="button"
+                onClick={() => setIsAIAssistantOpen(true)}
+                className="flex-1 sm:flex-none px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md shadow-purple-500/20 transition-all cursor-pointer"
+                title="Open interactive AI Reading Assistant for this book"
+              >
+                <Bot className="w-4 h-4" />
+                <span>Ask AI About This Book</span>
+              </button>
+
               {book.type === 'FREE' || hasPurchasedAccess ? (
                 <>
                   <button
@@ -352,13 +368,13 @@ export const BookDetailsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Tab Navigation for Book Description, TOC, and Publication specs */}
+          {/* Tab Navigation for Book Description, AI Summary, TOC, and Publication specs */}
           <div className="pt-2">
-            <div className="flex border-b border-slate-200 dark:border-slate-800 gap-6 text-sm">
+            <div className="flex border-b border-slate-200 dark:border-slate-800 gap-4 sm:gap-6 text-xs sm:text-sm overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setActiveTab('overview')}
-                className={`pb-3 font-semibold transition-colors cursor-pointer ${
+                className={`pb-3 font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === 'overview'
                     ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400'
                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -366,10 +382,37 @@ export const BookDetailsPage: React.FC = () => {
               >
                 Description & Overview
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('ai-chat')}
+                className={`pb-3 font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  activeTab === 'ai-chat'
+                    ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                    : 'text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400'
+                }`}
+              >
+                <Bot className="w-3.5 h-3.5 text-indigo-500" />
+                <span>AI Assistant Chat</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('ai-summary')}
+                className={`pb-3 font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  activeTab === 'ai-summary'
+                    ? 'border-b-2 border-purple-600 text-purple-600 dark:text-purple-400'
+                    : 'text-slate-500 hover:text-purple-600 dark:hover:text-purple-400'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                <span>AI Summary</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveTab('toc')}
-                className={`pb-3 font-semibold transition-colors cursor-pointer ${
+                className={`pb-3 font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === 'toc'
                     ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400'
                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -377,10 +420,11 @@ export const BookDetailsPage: React.FC = () => {
               >
                 Table of Contents ({book.chapters ? book.chapters.length : 3})
               </button>
+
               <button
                 type="button"
                 onClick={() => setActiveTab('details')}
-                className={`pb-3 font-semibold transition-colors cursor-pointer ${
+                className={`pb-3 font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                   activeTab === 'details'
                     ? 'border-b-2 border-indigo-600 text-indigo-600 dark:text-indigo-400'
                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -417,14 +461,28 @@ export const BookDetailsPage: React.FC = () => {
                     </li>
                     <li className="flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Offline student preview ready for Phase 2</span>
+                      <span>Interactive AI Book Assistant Q&A available</span>
                     </li>
                   </ul>
                 </div>
               </div>
             )}
 
-            {/* Tab 2: Table of Contents */}
+            {/* Tab 2: AI Book Assistant Interactive Chat */}
+            {activeTab === 'ai-chat' && (
+              <div className="pt-4">
+                <AIBookDetailsChat book={book} />
+              </div>
+            )}
+
+            {/* Tab 3: Feature 4 - AI Summary */}
+            {activeTab === 'ai-summary' && (
+              <div className="pt-4">
+                <AIBookSummaryCard book={book} />
+              </div>
+            )}
+
+            {/* Tab 3: Table of Contents */}
             {activeTab === 'toc' && (
               <div className="pt-4 space-y-3">
                 {(book.chapters || [
@@ -452,7 +510,7 @@ export const BookDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Tab 3: Publication & Citation */}
+            {/* Tab 4: Publication & Citation */}
             {activeTab === 'details' && (
               <div className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -486,27 +544,22 @@ export const BookDetailsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Related Books Section */}
-      <div className="pt-12 border-t border-slate-200 dark:border-slate-800">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-serif text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-            Related Academic Volumes
-          </h3>
-          <button
-            type="button"
-            onClick={() => navigateTo('books', { category: book.category })}
-            className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 cursor-pointer"
-          >
-            Explore More in {book.category}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {relatedBooks.map(rel => (
-            <BookCard key={rel.id} book={rel} />
-          ))}
-        </div>
+      {/* Feature 1: You May Also Like AI Recommendations */}
+      <div className="pt-8 border-t border-slate-200 dark:border-slate-800">
+        <AIRecommendationsSection
+          currentBookId={book.id}
+          title="You May Also Like"
+          subtitle={`AI-curated recommendations based on "${book.title}", ${book.category}, and related CS subjects.`}
+          limit={3}
+        />
       </div>
+
+      {/* Feature 3 Modal: AI Book Assistant */}
+      <AIBookAssistantModal
+        book={book}
+        isOpen={isAIAssistantOpen}
+        onClose={() => setIsAIAssistantOpen(false)}
+      />
     </div>
   );
 };

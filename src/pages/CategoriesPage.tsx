@@ -1,11 +1,12 @@
 import React from 'react';
 import { Layers, ArrowLeft } from 'lucide-react';
-import { CATEGORIES_DATA } from '../data/categoriesData';
 import { CategoryCard } from '../components/CategoryCard';
 import { useApp } from '../context/AppContext';
 
 export const CategoriesPage: React.FC = () => {
-  const { navigateTo } = useApp();
+  const { navigateTo, allCategories } = useApp();
+
+  const totalBooksCount = allCategories.reduce((acc, c) => acc + (c.bookCount || 0), 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
@@ -24,7 +25,7 @@ export const CategoriesPage: React.FC = () => {
             All Disciplines & Categories
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Browse through 12 specialized computer science domains curated for collegiate and professional study.
+            Browse through {allCategories.length} specialized academic domains curated for collegiate and professional study.
           </p>
         </div>
 
@@ -33,14 +34,14 @@ export const CategoriesPage: React.FC = () => {
           onClick={() => navigateTo('books')}
           className="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs self-start sm:self-auto"
         >
-          View All Books ({CATEGORIES_DATA.reduce((acc, c) => acc + c.bookCount, 0)} total)
+          View All Books ({totalBooksCount} total)
         </button>
       </div>
 
-      {/* Grid of all 12 categories */}
+      {/* Grid of categories */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {CATEGORIES_DATA.map(category => (
-          <CategoryCard key={category.id} category={category} />
+        {allCategories.map(category => (
+          <CategoryCard key={category.id || category.slug} category={category} />
         ))}
       </div>
     </div>

@@ -14,18 +14,19 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ className = '', showLa
     <button
       type="button"
       onClick={toggleTheme}
-      className={`inline-flex items-center justify-center p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer ${className}`}
+      className={`inline-flex items-center justify-center gap-2 p-2 rounded-xl text-slate-600 hover:text-slate-900 bg-slate-100/80 hover:bg-slate-200/80 dark:text-slate-300 dark:hover:text-white dark:bg-slate-800/80 dark:hover:bg-slate-700/80 border border-slate-200/70 dark:border-slate-700/70 transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer shadow-xs ${className}`}
       aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      aria-pressed={isDark}
       title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
     >
       {isDark ? (
-        <Sun className="w-5 h-5 text-amber-400 animate-in fade-in" />
+        <Sun className="w-4.5 h-4.5 text-amber-400 animate-in spin-in-180 duration-300 transition-transform" />
       ) : (
-        <Moon className="w-5 h-5 text-slate-700 animate-in fade-in" />
+        <Moon className="w-4.5 h-4.5 text-indigo-600 animate-in spin-in-180 duration-300 transition-transform" />
       )}
       {showLabel && (
-        <span className="ml-2 text-sm font-medium">
-          {isDark ? 'Light Mode' : 'Dark Mode'}
+        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+          {isDark ? 'Light Theme' : 'Dark Theme'}
         </span>
       )}
     </button>

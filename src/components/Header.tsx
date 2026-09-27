@@ -9,7 +9,10 @@ import {
   ShieldCheck,
   LogOut,
   UserCheck,
-  Shield
+  Bell,
+  Sparkles,
+  Receipt,
+  BookOpen
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ThemeToggle } from './ThemeToggle';
@@ -23,13 +26,16 @@ export const Header: React.FC = () => {
     currentUser, 
     logoutUser, 
     setSelectedType,
-    searchQuery,
-    setSearchQuery 
+    setSearchQuery,
+    libraryItems = [],
+    purchaseHistory = [],
+    allBooks = []
   } = useApp();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
 
   const navLinks: { label: string; page: ActivePage; filterType?: 'FREE' | 'PREMIUM' }[] = [
@@ -58,18 +64,42 @@ export const Header: React.FC = () => {
     }
   };
 
+  // Build notifications from real state
+  const notifications = [
+    ...(allBooks.length > 0 ? [{
+      id: 'n-new-book',
+      title: 'New Books Available',
+      desc: `${allBooks.length} Computer Science & Programming titles active in catalog.`,
+      time: 'Just now',
+      icon: <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+    }] : []),
+    ...(libraryItems.length > 0 ? [{
+      id: 'n-reading',
+      title: 'Active Reading Shelf',
+      desc: `You have ${libraryItems.length} book(s) in your personal reading library.`,
+      time: 'Today',
+      icon: <BookOpen className="w-3.5 h-3.5 text-emerald-500" />
+    }] : []),
+    ...(purchaseHistory.length > 0 ? [{
+      id: 'n-purchase',
+      title: 'Purchased Access Confirmed',
+      desc: `${purchaseHistory.length} premium digital volume(s) verified in your account.`,
+      time: 'Recent',
+      icon: <Receipt className="w-3.5 h-3.5 text-amber-500" />
+    }] : []),
+  ];
+
   return (
     <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
-          {/* Zone 1: Brand Wordmark with original book logo */}
+          {/* Zone 1: Brand Logo */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => navigateTo('home')}
               className="flex items-center gap-2.5 text-left group cursor-pointer"
               aria-label="BookStore Home"
             >
-              {/* Original BookStore Icon: Open Book with page layer */}
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-800 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
                 <svg
                   viewBox="0 0 24 24"
@@ -93,7 +123,7 @@ export const Header: React.FC = () => {
                     BookStore
                   </span>
                   <span className="text-[10px] font-semibold uppercase px-1.5 py-0.2 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 rounded border border-indigo-200 dark:border-indigo-800/60 hidden sm:inline-block">
-                    CS Ed.
+                    Digital Library
                   </span>
                 </div>
                 <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 tracking-wider hidden lg:inline-block">
@@ -103,7 +133,7 @@ export const Header: React.FC = () => {
             </button>
           </div>
 
-          {/* Zone 2: Desktop Navigation Links (Center) */}
+          {/* Zone 2: Desktop Navigation Links */}
           <nav className="hidden md:flex items-center gap-1 lg:gap-2">
             {navLinks.map(link => {
               const isActive = activePage === link.page;
@@ -136,7 +166,7 @@ export const Header: React.FC = () => {
               <Search className="w-5 h-5" />
             </button>
 
-            {/* Wishlist Link (User-Isolated in Phase 3) */}
+            {/* Wishlist Link */}
             <button
               type="button"
               onClick={() => navigateTo('wishlist')}
@@ -152,14 +182,73 @@ export const Header: React.FC = () => {
               )}
             </button>
 
-            {/* My Library Button (When Logged In) */}
+            {/* Notifications Popover Trigger */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setNotificationsOpen(prev => !prev);
+                  setProfileOpen(false);
+                }}
+                className="relative p-2 text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                aria-label="Notifications"
+                title="Notifications"
+              >
+                <Bell className="w-5 h-5" />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-white dark:ring-slate-900" />
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-indigo-600" />
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                        Library Notifications
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-slate-400">Recent</span>
+                  </div>
+
+                  <div className="py-2 divide-y divide-slate-100 dark:divide-slate-800/60 max-h-64 overflow-y-auto">
+                    {notifications.map(n => (
+                      <div key={n.id} className="py-2.5 flex items-start gap-2.5">
+                        <div className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 shrink-0 mt-0.5">
+                          {n.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-slate-900 dark:text-white">{n.title}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{n.desc}</p>
+                          <span className="text-[10px] text-slate-400 font-mono mt-1 block">{n.time}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotificationsOpen(false);
+                        navigateTo('books');
+                      }}
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      Browse All Catalog Titles
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* My Library Button */}
             {currentUser && (
               <button
                 type="button"
                 onClick={() => navigateTo('library')}
                 className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
                   activePage === 'library'
-                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                     : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -168,7 +257,7 @@ export const Header: React.FC = () => {
               </button>
             )}
 
-            {/* Admin Panel Link: ONLY SHOWN IF ROLE === 'ADMIN' (Requirement 9 & 19) */}
+            {/* Admin Panel Link: ONLY SHOWN IF ROLE === 'ADMIN' */}
             {currentUser && currentUser.role === 'ADMIN' && (
               <button
                 type="button"
@@ -187,12 +276,15 @@ export const Header: React.FC = () => {
             {/* Light / Dark Mode Toggle */}
             <ThemeToggle />
 
-            {/* User Profile / Login (Requirement 19) */}
+            {/* User Profile / Login */}
             {currentUser ? (
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setProfileOpen(prev => !prev)}
+                  onClick={() => {
+                    setProfileOpen(prev => !prev);
+                    setNotificationsOpen(false);
+                  }}
                   className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-bold ring-1 ring-indigo-500/20">
@@ -204,7 +296,7 @@ export const Header: React.FC = () => {
                 </button>
 
                 {profileOpen && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-3 z-50 animate-in fade-in slide-in-from-top-2">
+                  <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-3 z-50 animate-in fade-in slide-in-from-top-2">
                     <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
@@ -226,7 +318,6 @@ export const Header: React.FC = () => {
                     </div>
 
                     <div className="py-2 space-y-1">
-                      {/* Admin link inside dropdown if ADMIN */}
                       {currentUser.role === 'ADMIN' && (
                         <button
                           type="button"
@@ -276,6 +367,18 @@ export const Header: React.FC = () => {
                         <Heart className="w-3.5 h-3.5 text-rose-500" />
                         <span>Saved Wishlist ({wishlistIds.length})</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileOpen(false);
+                          navigateTo('purchase-history');
+                        }}
+                        className="w-full text-left px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        <Receipt className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Purchase History & Invoices</span>
+                      </button>
                     </div>
 
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -295,7 +398,6 @@ export const Header: React.FC = () => {
                 )}
               </div>
             ) : (
-              /* Requirement 19: When logged out, show Login & Register */
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -337,16 +439,16 @@ export const Header: React.FC = () => {
                   type="text"
                   value={quickSearch}
                   onChange={e => setQuickSearch(e.target.value)}
-                  placeholder="Quick search books, authors, topics..."
+                  placeholder="Quick search books, authors, topics (e.g. Python, Algorithms, Database)..."
                   autoFocus
                   className="w-full pl-9 pr-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               <button
                 type="submit"
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg cursor-pointer shadow-xs"
               >
-                Go
+                Search
               </button>
               <button
                 type="button"
@@ -428,6 +530,12 @@ export const Header: React.FC = () => {
               </span>
             </button>
 
+            {/* Mobile Theme Toggle */}
+            <div className="flex items-center justify-between px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
+              <span>Theme Appearance</span>
+              <ThemeToggle showLabel />
+            </div>
+
             {currentUser ? (
               <div className="p-2 mt-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg">
                 <p className="text-xs font-semibold text-slate-900 dark:text-white">
@@ -483,3 +591,4 @@ export const Header: React.FC = () => {
     </header>
   );
 };
+

@@ -28,14 +28,28 @@ import {
   FileText,
   Image as ImageIcon,
   Check,
-  X
+  X,
+  CreditCard,
+  Key,
+  Globe,
+  Zap,
+  CheckCircle,
+  ExternalLink,
+  EyeOff,
+  Clock,
+  Smartphone,
+  Layers,
+  Save,
+  Radio,
+  Info
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { adminService } from '../services/api';
-import { AdminTab, Book, UserProfile } from '../types';
+import { adminService, AIService, gatewayService } from '../services/api';
+import { AdminTab, Book, UserProfile, PaymentGatewaySettings, GatewayId, Category } from '../types';
 import { Badge } from '../components/Badge';
 import { BookCover } from '../components/BookCover';
 import { CATEGORIES_DATA } from '../data/categoriesData';
+import { CategoryIconSelector, renderCategoryIcon } from '../components/CategoryIconSelector';
 
 export const AdminPage: React.FC = () => {
   const { 
@@ -47,7 +61,10 @@ export const AdminPage: React.FC = () => {
     allBooks,
     refreshBooks,
     adminBookToEdit,
-    setAdminBookToEdit 
+    setAdminBookToEdit,
+    allCategories,
+    refreshCategories,
+    setSelectedCategory
   } = useApp();
 
   const [metrics, setMetrics] = useState<any>(null);
@@ -55,16 +72,53 @@ export const AdminPage: React.FC = () => {
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [ordersList, setOrdersList] = useState<any[]>([]);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [aiAnalyticsData, setAiAnalyticsData] = useState<any>(null);
+  const [aiToggleLoading, setAiToggleLoading] = useState<boolean>(false);
   const [orderSearch, setOrderSearch] = useState<string>('');
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Payment Gateway Management State (Phase 10A)
+  const [gatewaySettings, setGatewaySettings] = useState<PaymentGatewaySettings | null>(null);
+  const [gatewayLoading, setGatewayLoading] = useState<boolean>(false);
+  const [gatewaySaving, setGatewaySaving] = useState<boolean>(false);
+  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  const [activeGatewaySelection, setActiveGatewaySelection] = useState<GatewayId>('sandbox');
+  const [gatewayForm, setGatewayForm] = useState<{
+    sandbox: { enabled: boolean; mode: 'TEST' | 'LIVE' };
+    razorpay: { enabled: boolean; mode: 'TEST' | 'LIVE'; keyId: string; keySecret: string; webhookSecret: string };
+    stripe: { enabled: boolean; mode: 'TEST' | 'LIVE'; keyId: string; keySecret: string; webhookSecret: string };
+  }>({
+    sandbox: { enabled: true, mode: 'TEST' },
+    razorpay: { enabled: false, mode: 'TEST', keyId: '', keySecret: '', webhookSecret: '' },
+    stripe: { enabled: false, mode: 'TEST', keyId: '', keySecret: '', webhookSecret: '' },
+  });
 
   // Search & Filter state for Admin Books table (Requirement 10)
   const [bookSearch, setBookSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+
+  // Dynamic Category Management State
+  const [categorySearch, setCategorySearch] = useState('');
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryToEdit, setCategoryToEdit] = useState<Category | null>(null);
+  const [categoryForm, setCategoryForm] = useState<{
+    name: string;
+    slug: string;
+    description: string;
+    icon: string;
+  }>({
+    name: '',
+    slug: '',
+    description: '',
+    icon: 'BookOpen',
+  });
+  const [categorySubmitting, setCategorySubmitting] = useState(false);
+  const [categoryDeleteModal, setCategoryDeleteModal] = useState<Category | null>(null);
+  const [categoryDeleting, setCategoryDeleting] = useState(false);
 
   // Deletion Modal state (Requirement 9)
   const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
@@ -141,22 +195,104 @@ export const AdminPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [metricsData, booksData, usersData, ordersData, analyticsRes] = await Promise.all([
+      const [metricsData, booksData, usersData, ordersData, analyticsRes, aiData, gatewaysData] = await Promise.all([
         adminService.getDashboard().catch(() => null),
         adminService.getBooks().catch(() => allBooks),
         adminService.getUsers().catch(() => []),
         adminService.getOrders().catch(() => []),
         adminService.getAnalytics().catch(() => null),
+        AIService.getAdminAnalytics().catch(() => null),
+        gatewayService.getAdminGateways().catch(() => null),
       ]);
       setMetrics(metricsData);
       setAdminBooksList(booksData || allBooks);
       setUsersList(usersData);
       setOrdersList(ordersData || []);
       setAnalyticsData(analyticsRes);
+      setAiAnalyticsData(aiData);
+
+      if (gatewaysData) {
+        setGatewaySettings(gatewaysData);
+        setActiveGatewaySelection(gatewaysData.activeGateway || 'sandbox');
+        setGatewayForm({
+          sandbox: {
+            enabled: gatewaysData.gateways?.sandbox?.enabled ?? true,
+            mode: gatewaysData.gateways?.sandbox?.mode || 'TEST',
+          },
+          razorpay: {
+            enabled: gatewaysData.gateways?.razorpay?.enabled ?? false,
+            mode: gatewaysData.gateways?.razorpay?.mode || 'TEST',
+            keyId: gatewaysData.gateways?.razorpay?.keyId || '',
+            keySecret: gatewaysData.gateways?.razorpay?.hasKeySecret ? '********' : '',
+            webhookSecret: gatewaysData.gateways?.razorpay?.webhookSecret || '',
+          },
+          stripe: {
+            enabled: gatewaysData.gateways?.stripe?.enabled ?? false,
+            mode: gatewaysData.gateways?.stripe?.mode || 'TEST',
+            keyId: gatewaysData.gateways?.stripe?.keyId || '',
+            keySecret: gatewaysData.gateways?.stripe?.hasKeySecret ? '********' : '',
+            webhookSecret: gatewaysData.gateways?.stripe?.webhookSecret || '',
+          },
+        });
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to communicate with administrative endpoints.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveGateways = async () => {
+    try {
+      setGatewaySaving(true);
+      const res = await gatewayService.updateAdminGateways({
+        activeGateway: activeGatewaySelection,
+        gateways: {
+          sandbox: {
+            enabled: gatewayForm.sandbox.enabled,
+            mode: gatewayForm.sandbox.mode,
+          },
+          razorpay: {
+            enabled: gatewayForm.razorpay.enabled,
+            mode: gatewayForm.razorpay.mode,
+            keyId: gatewayForm.razorpay.keyId,
+            keySecret: gatewayForm.razorpay.keySecret,
+            webhookSecret: gatewayForm.razorpay.webhookSecret,
+          },
+          stripe: {
+            enabled: gatewayForm.stripe.enabled,
+            mode: gatewayForm.stripe.mode,
+            keyId: gatewayForm.stripe.keyId,
+            keySecret: gatewayForm.stripe.keySecret,
+            webhookSecret: gatewayForm.stripe.webhookSecret,
+          },
+        },
+      });
+
+      setGatewaySettings(res.data);
+      showToast('Payment gateway configuration saved successfully!', 'success');
+      await fetchAdminData();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save gateway settings', 'warning');
+    } finally {
+      setGatewaySaving(false);
+    }
+  };
+
+  const toggleSecretVisibility = (field: string) => {
+    setShowSecrets(prev => ({ ...prev, [field]: !prev[field] }));
+  };
+
+  const handleToggleAI = async (newEnabledState: boolean) => {
+    try {
+      setAiToggleLoading(true);
+      const res = await AIService.toggleAI(newEnabledState);
+      showToast(res.message || `AI system ${newEnabledState ? 'enabled' : 'disabled'}!`, 'info');
+      await fetchAdminData();
+    } catch (err: any) {
+      showToast(err.message || 'Could not update AI status', 'warning');
+    } finally {
+      setAiToggleLoading(false);
     }
   };
 
@@ -393,6 +529,87 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  // Dynamic Category Handlers
+  const openCreateCategoryModal = () => {
+    setCategoryToEdit(null);
+    setCategoryForm({
+      name: '',
+      slug: '',
+      description: '',
+      icon: 'BookOpen',
+    });
+    setCategoryModalOpen(true);
+  };
+
+  const openEditCategoryModal = (cat: Category) => {
+    setCategoryToEdit(cat);
+    setCategoryForm({
+      name: cat.name,
+      slug: cat.slug,
+      description: cat.description || '',
+      icon: cat.icon || 'BookOpen',
+    });
+    setCategoryModalOpen(true);
+  };
+
+  const handleCategoryNameChange = (name: string) => {
+    const autoSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    setCategoryForm(prev => ({
+      ...prev,
+      name,
+      slug: categoryToEdit ? prev.slug : autoSlug,
+    }));
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryForm.name.trim()) {
+      showToast('Category name is required', 'warning');
+      return;
+    }
+
+    try {
+      setCategorySubmitting(true);
+      if (categoryToEdit) {
+        await adminService.updateCategory(categoryToEdit.id || categoryToEdit.slug, categoryForm);
+        showToast(`Category "${categoryForm.name}" updated successfully!`, 'success');
+      } else {
+        await adminService.createCategory(categoryForm);
+        showToast(`Category "${categoryForm.name}" created successfully!`, 'success');
+      }
+      await refreshCategories();
+      setCategoryModalOpen(false);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save category', 'warning');
+    } finally {
+      setCategorySubmitting(false);
+    }
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!categoryDeleteModal) return;
+    const linkedCount = adminBooksList.filter(
+      b => b.category.toLowerCase().trim() === categoryDeleteModal.name.toLowerCase().trim()
+    ).length;
+
+    if (linkedCount > 0) {
+      showToast(`Cannot delete: ${linkedCount} book(s) assigned to this category.`, 'warning');
+      return;
+    }
+
+    try {
+      setCategoryDeleting(true);
+      await adminService.deleteCategory(categoryDeleteModal.id || categoryDeleteModal.slug);
+      showToast(`Category "${categoryDeleteModal.name}" deleted successfully`, 'info');
+      await refreshCategories();
+      setCategoryDeleteModal(null);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete category', 'warning');
+    } finally {
+      setCategoryDeleting(false);
+    }
+  };
+
   // Filtered books in admin table
   const displayedBooks = adminBooksList.filter(b => {
     const q = bookSearch.toLowerCase().trim();
@@ -415,7 +632,9 @@ export const AdminPage: React.FC = () => {
     { id: 'categories', label: 'Categories', icon: <FolderTree className="w-4 h-4" /> },
     { id: 'users', label: 'User Accounts', icon: <Users className="w-4 h-4" /> },
     { id: 'orders', label: 'Orders & Sales', icon: <ShoppingCart className="w-4 h-4" /> },
+    { id: 'payment-gateways', label: 'Payment Gateway', icon: <CreditCard className="w-4 h-4 text-emerald-400" /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'ai-settings', label: 'AI Configuration & Analytics', icon: <Sparkles className="w-4 h-4 text-purple-400" /> },
     { id: 'settings', label: 'Security & Settings', icon: <Settings className="w-4 h-4" /> },
   ];
 
@@ -1025,8 +1244,8 @@ export const AdminPage: React.FC = () => {
                       onChange={e => setFormCategory(e.target.value)}
                       className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"
                     >
-                      {CATEGORIES_DATA.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
+                      {allCategories.map(c => (
+                        <option key={c.id || c.slug} value={c.name}>{c.name}</option>
                       ))}
                     </select>
                   </div>
@@ -1356,32 +1575,191 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 4: CATEGORIES (Requirement 8) */}
+          {/* TAB 4: DYNAMIC CATEGORIES MANAGEMENT */}
           {activeAdminTab === 'categories' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="font-serif text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                  Academic Disciplines & Categories
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  12 configured computer science domains stored in the Category MongoDB schema.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {CATEGORIES_DATA.map(cat => (
-                  <div key={cat.id} className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold text-sm text-slate-900 dark:text-white">{cat.name}</p>
-                      <p className="text-xs text-slate-400">
-                        {adminBooksList.filter(b => b.category.toLowerCase() === cat.name.toLowerCase()).length} books assigned
-                      </p>
-                    </div>
-                    <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-bold">
-                      Active
+              {/* Header with Title and Add Category Button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-serif text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                      Dynamic Category & Discipline Management
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold font-mono">
+                      {allCategories.length} Total
                     </span>
                   </div>
-                ))}
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Manage study domains, add new academic categories, and assign custom icons for dynamic catalog filtering.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={refreshCategories}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Reload categories"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={openCreateCategoryModal}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Add New Category</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Stats Overview */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+                    <FolderTree className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 font-medium block">Total Categories</span>
+                    <strong className="text-lg font-bold text-slate-900 dark:text-white font-mono">
+                      {allCategories.length}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 font-medium block">Populated Domains</span>
+                    <strong className="text-lg font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                      {allCategories.filter(c => adminBooksList.some(b => b.category?.toLowerCase() === c.name?.toLowerCase())).length}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 font-medium block">Assigned Books</span>
+                    <strong className="text-lg font-bold text-purple-600 dark:text-purple-400 font-mono">
+                      {adminBooksList.length}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search filter for categories */}
+              <div className="relative max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={categorySearch}
+                  onChange={e => setCategorySearch(e.target.value)}
+                  placeholder="Filter categories by name, slug, or description..."
+                  className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Categories Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allCategories
+                  .filter(cat => {
+                    if (!categorySearch.trim()) return true;
+                    const q = categorySearch.toLowerCase().trim();
+                    return (
+                      cat.name.toLowerCase().includes(q) ||
+                      cat.slug.toLowerCase().includes(q) ||
+                      (cat.description && cat.description.toLowerCase().includes(q))
+                    );
+                  })
+                  .map(cat => {
+                    const assignedBooks = adminBooksList.filter(
+                      b => b.category?.toLowerCase() === cat.name?.toLowerCase()
+                    );
+                    return (
+                      <div
+                        key={cat.id || cat.slug}
+                        className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700/80 transition-all flex flex-col justify-between shadow-xs group"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                {renderCategoryIcon(cat.icon, 'w-5 h-5')}
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-sm text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                  {cat.name}
+                                </h3>
+                                <p className="text-[11px] font-mono text-slate-400">
+                                  /category/{cat.slug}
+                                </p>
+                              </div>
+                            </div>
+
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
+                              Icon: {cat.icon || 'BookOpen'}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                            {cat.description || 'No description provided.'}
+                          </p>
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterCategory(cat.name);
+                              setActiveAdminTab('books');
+                            }}
+                            className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer tabular-nums flex items-center gap-1"
+                          >
+                            <span>{assignedBooks.length} Books</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openEditCategoryModal(cat)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="Edit Category"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCategoryDeleteModal(cat)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="Delete Category"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCategory(cat.name);
+                                navigateTo('category-detail', { categorySlug: cat.slug });
+                              }}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="View on public catalog"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -1553,9 +1931,9 @@ export const AdminPage: React.FC = () => {
                     />
                   </div>
 
-                  {/* Filter Status: Paid, Pending, Failed, Cancelled */}
+                  {/* Filter Status: Paid, Processing, Pending, Failed, Cancelled, Refunded */}
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    {['ALL', 'PAID', 'PENDING', 'FAILED', 'CANCELLED'].map(st => (
+                    {['ALL', 'PAID', 'PROCESSING', 'PENDING', 'FAILED', 'CANCELLED', 'REFUNDED'].map(st => (
                       <button
                         key={st}
                         type="button"
@@ -1585,10 +1963,14 @@ export const AdminPage: React.FC = () => {
                         <tr>
                           <th className="py-3.5 px-4">Order ID</th>
                           <th className="py-3.5 px-4">User</th>
-                          <th className="py-3.5 px-4">Book Title</th>
+                          <th className="py-3.5 px-4">Book</th>
+                          <th className="py-3.5 px-4">Gateway</th>
                           <th className="py-3.5 px-4">Amount</th>
+                          <th className="py-3.5 px-4">Currency</th>
                           <th className="py-3.5 px-4">Payment Status</th>
-                          <th className="py-3.5 px-4">Payment Reference</th>
+                          <th className="py-3.5 px-4">Order Status</th>
+                          <th className="py-3.5 px-4">Payment ID</th>
+                          <th className="py-3.5 px-4">Mode</th>
                           <th className="py-3.5 px-4">Date</th>
                         </tr>
                       </thead>
@@ -1596,6 +1978,9 @@ export const AdminPage: React.FC = () => {
                         {filteredOrders.length > 0 ? (
                           filteredOrders.map(ord => {
                             const status = ord.paymentStatus || ord.status || 'PAID';
+                            const gatewayName = ord.gateway === 'razorpay' ? 'Razorpay' : 'Demo / Sandbox';
+                            const isTest = ord.isTestMode !== false;
+                            const paymentId = ord.paymentId || ord.paymentReference || ord.razorpayPaymentId || 'N/A';
                             const dateStr = ord.createdAt
                               ? new Date(ord.createdAt).toLocaleDateString('en-US', {
                                   month: 'short',
@@ -1620,28 +2005,57 @@ export const AdminPage: React.FC = () => {
                                 <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-slate-200 max-w-xs truncate">
                                   {ord.bookTitle}
                                 </td>
+                                <td className="py-3.5 px-4">
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                    ord.gateway === 'razorpay' 
+                                      ? 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                      : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                  }`}>
+                                    {ord.gateway === 'razorpay' ? <Smartphone className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+                                    <span>{gatewayName}</span>
+                                  </span>
+                                </td>
                                 <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white tabular-nums">
                                   ₹{ord.amount}
+                                </td>
+                                <td className="py-3.5 px-4 font-mono text-slate-500 font-semibold">
+                                  {ord.currency || 'INR'}
                                 </td>
                                 <td className="py-3.5 px-4">
                                   <span
                                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                                       status === 'PAID'
                                         ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                        : status === 'PROCESSING'
+                                        ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                                         : status === 'PENDING'
                                         ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
                                         : status === 'FAILED'
                                         ? 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                        : status === 'REFUNDED'
+                                        ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
                                     }`}
                                   >
                                     {status === 'PAID' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                                    {status === 'PROCESSING' && <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />}
+                                    {status === 'PENDING' && <Clock className="w-3 h-3 text-amber-500" />}
                                     {status === 'FAILED' && <XCircle className="w-3 h-3 text-rose-500" />}
+                                    {status === 'REFUNDED' && <RotateCcw className="w-3 h-3 text-purple-500" />}
+                                    {status === 'CANCELLED' && <X className="w-3 h-3 text-slate-400" />}
                                     <span>{status}</span>
                                   </span>
                                 </td>
-                                <td className="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400 text-[11px]">
-                                  {ord.paymentReference || ord.paymentMethod || 'REF-DEMO-SIMULATED'}
+                                <td className="py-3.5 px-4 font-semibold text-slate-600 dark:text-slate-300 text-[11px]">
+                                  {status === 'PAID' ? 'Fulfilled' : status === 'PENDING' ? 'Awaiting Payment' : status}
+                                </td>
+                                <td className="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400 text-[11px] max-w-[140px] truncate" title={paymentId}>
+                                  {paymentId}
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                    {isTest ? 'TEST MODE' : 'LIVE'}
+                                  </span>
                                 </td>
                                 <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
                                   {dateStr}
@@ -1651,7 +2065,7 @@ export const AdminPage: React.FC = () => {
                           })
                         ) : (
                           <tr>
-                            <td colSpan={7} className="py-12 text-center text-slate-400">
+                            <td colSpan={11} className="py-12 text-center text-slate-400">
                               No orders match the selected search and filter criteria.
                             </td>
                           </tr>
@@ -1665,14 +2079,581 @@ export const AdminPage: React.FC = () => {
           })()}
 
           {/* ==================================================
-              TAB 7: REVENUE ANALYTICS (Requirement 11)
+              TAB: PAYMENT GATEWAY MANAGEMENT (Phase 10A)
               ================================================== */}
+          {activeAdminTab === 'payment-gateways' && (
+            <div className="space-y-8 animate-in fade-in duration-200">
+              {/* Header and Save Action */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold border border-emerald-200 dark:border-emerald-800 mb-1.5">
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Phase 10A · Multi-Gateway Orchestration Layer</span>
+                  </div>
+                  <h2 className="font-serif text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                    Payment Gateway Settings
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Configure payment providers, switch active default checkout channels, and toggle Test vs Live modes.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={fetchAdminData}
+                    disabled={gatewayLoading || gatewaySaving}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${gatewayLoading ? 'animate-spin' : ''}`} />
+                    <span>Reload</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveGateways}
+                    disabled={gatewaySaving}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white shadow-md transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                  >
+                    {gatewaySaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Saving Settings...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Save Gateway Settings</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Active Gateway Selector Banner */}
+              <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white border border-slate-800 shadow-lg space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-bold block">
+                      Default Checkout Router
+                    </span>
+                    <h3 className="font-bold text-base text-white">
+                      Primary Active Gateway: <span className="text-emerald-400 font-mono capitalize">{activeGatewaySelection}</span>
+                    </h3>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Select which payment gateway serves as the default channel when students purchase premium textbooks.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Gateway Selection Radio Group */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  {/* Demo Radio */}
+                  <label
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      activeGatewaySelection === 'sandbox'
+                        ? 'bg-indigo-600/30 border-indigo-400 text-white shadow-sm ring-1 ring-indigo-400'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="activeGateway"
+                      value="sandbox"
+                      checked={activeGatewaySelection === 'sandbox'}
+                      onChange={() => setActiveGatewaySelection('sandbox')}
+                      className="sr-only"
+                    />
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                      activeGatewaySelection === 'sandbox' ? 'border-indigo-400 bg-indigo-500' : 'border-slate-500'
+                    }`}>
+                      {activeGatewaySelection === 'sandbox' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-xs text-white flex items-center gap-1.5">
+                        <span>Demo / Sandbox</span>
+                        <span className="px-1.5 py-0.2 text-[9px] rounded bg-emerald-500/20 text-emerald-300 font-mono">ACTIVE</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">Default Test Environment</div>
+                    </div>
+                  </label>
+
+                  {/* Razorpay Radio */}
+                  <label
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      activeGatewaySelection === 'razorpay'
+                        ? 'bg-indigo-600/30 border-indigo-400 text-white shadow-sm ring-1 ring-indigo-400'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="activeGateway"
+                      value="razorpay"
+                      checked={activeGatewaySelection === 'razorpay'}
+                      onChange={() => setActiveGatewaySelection('razorpay')}
+                      className="sr-only"
+                    />
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                      activeGatewaySelection === 'razorpay' ? 'border-indigo-400 bg-indigo-500' : 'border-slate-500'
+                    }`}>
+                      {activeGatewaySelection === 'razorpay' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-xs text-white flex items-center gap-1.5">
+                        <span>Razorpay</span>
+                        {gatewayForm.razorpay.enabled ? (
+                          <span className="px-1.5 py-0.2 text-[9px] rounded bg-emerald-500/20 text-emerald-300 font-mono">ENABLED</span>
+                        ) : (
+                          <span className="px-1.5 py-0.2 text-[9px] rounded bg-slate-700 text-slate-400 font-mono">DISABLED</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400">India · UPI / RuPay</div>
+                    </div>
+                  </label>
+
+                  {/* Stripe Radio */}
+                  <label
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      activeGatewaySelection === 'stripe'
+                        ? 'bg-indigo-600/30 border-indigo-400 text-white shadow-sm ring-1 ring-indigo-400'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="activeGateway"
+                      value="stripe"
+                      checked={activeGatewaySelection === 'stripe'}
+                      onChange={() => setActiveGatewaySelection('stripe')}
+                      className="sr-only"
+                    />
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                      activeGatewaySelection === 'stripe' ? 'border-indigo-400 bg-indigo-500' : 'border-slate-500'
+                    }`}>
+                      {activeGatewaySelection === 'stripe' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-xs text-white flex items-center gap-1.5">
+                        <span>Stripe</span>
+                        {gatewayForm.stripe.enabled ? (
+                          <span className="px-1.5 py-0.2 text-[9px] rounded bg-emerald-500/20 text-emerald-300 font-mono">ENABLED</span>
+                        ) : (
+                          <span className="px-1.5 py-0.2 text-[9px] rounded bg-slate-700 text-slate-400 font-mono">DISABLED</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400">Global · Cards & Wallets</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* 3 Gateway Cards Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* 1. DEMO / SANDBOX GATEWAY CARD */}
+                <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/40 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-6">
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                          <Zap className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-base">
+                            1. Demo / Sandbox
+                          </h4>
+                          <span className="text-[11px] text-slate-500">Virtual Simulation Engine</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          Status: ENABLED
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          Mode: TEST
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Safe testing environment for students and college admins. Simulates instant payments via UPI, RuPay cards, and NetBanking without actual fund settlement.
+                    </p>
+
+                    {/* Features List */}
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-xs space-y-2">
+                      <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>Zero financial risk or credit card required</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>Instant success / decline webhook simulations</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <span>Syncs with verified student order logs & library</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">Gateway Status:</span>
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={gatewayForm.sandbox.enabled}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            sandbox: { ...prev.sandbox, enabled: e.target.checked }
+                          }))}
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">Enabled</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">Operational Mode:</span>
+                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                        TEST (Sandbox)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. RAZORPAY GATEWAY CARD */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-6">
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                          <Smartphone className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-base">
+                            2. Razorpay
+                          </h4>
+                          <span className="text-[11px] text-slate-500">UPI, RuPay, NetBanking</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          Boolean(gatewayForm.razorpay.keyId && gatewayForm.razorpay.keySecret)
+                            ? gatewayForm.razorpay.enabled
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                              : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                        }`}>
+                          Status: {Boolean(gatewayForm.razorpay.keyId && gatewayForm.razorpay.keySecret)
+                            ? (gatewayForm.razorpay.enabled ? 'ENABLED' : 'DISABLED')
+                            : 'NOT CONFIGURED'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${
+                          gatewayForm.razorpay.mode === 'LIVE'
+                            ? 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            : 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                        }`}>
+                          Mode: {gatewayForm.razorpay.mode}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Unified Indian payment system supporting QR codes, Google Pay, PhonePe, Paytm, domestic debit cards, and Indian banking rails.
+                    </p>
+
+                    {/* Inputs */}
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Key ID ({gatewayForm.razorpay.mode === 'LIVE' ? 'rzp_live_...' : 'rzp_test_...'})
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="rzp_test_xxxxxxxxxxxxxxxx"
+                          value={gatewayForm.razorpay.keyId}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            razorpay: { ...prev.razorpay, keyId: e.target.value }
+                          }))}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Key Secret
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showSecrets['razorpay_secret'] ? 'text' : 'password'}
+                            placeholder="Enter Razorpay Secret Key"
+                            value={gatewayForm.razorpay.keySecret}
+                            onChange={e => setGatewayForm(prev => ({
+                              ...prev,
+                              razorpay: { ...prev.razorpay, keySecret: e.target.value }
+                            }))}
+                            className="w-full pl-3 pr-9 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => toggleSecretVisibility('razorpay_secret')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          >
+                            {showSecrets['razorpay_secret'] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Webhook Secret (Optional)
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Webhook signature secret"
+                          value={gatewayForm.razorpay.webhookSecret}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            razorpay: { ...prev.razorpay, webhookSecret: e.target.value }
+                          }))}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">Enable Razorpay:</span>
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={gatewayForm.razorpay.enabled}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            razorpay: { ...prev.razorpay, enabled: e.target.checked }
+                          }))}
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className={gatewayForm.razorpay.enabled ? 'font-bold text-emerald-600' : 'text-slate-400'}>
+                          {gatewayForm.razorpay.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">Mode Switch:</span>
+                      <div className="flex rounded-lg p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setGatewayForm(prev => ({ ...prev, razorpay: { ...prev.razorpay, mode: 'TEST' } }))}
+                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                            gatewayForm.razorpay.mode === 'TEST' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500'
+                          }`}
+                        >
+                          TEST
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGatewayForm(prev => ({ ...prev, razorpay: { ...prev.razorpay, mode: 'LIVE' } }))}
+                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                            gatewayForm.razorpay.mode === 'LIVE' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-500'
+                          }`}
+                        >
+                          LIVE
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. STRIPE GATEWAY CARD */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-6">
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                          <Globe className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-base">
+                            3. Stripe
+                          </h4>
+                          <span className="text-[11px] text-slate-500">Global Credit Cards & Wallets</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          Boolean(gatewayForm.stripe.keyId && gatewayForm.stripe.keySecret)
+                            ? gatewayForm.stripe.enabled
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                              : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                        }`}>
+                          Status: {Boolean(gatewayForm.stripe.keyId && gatewayForm.stripe.keySecret)
+                            ? (gatewayForm.stripe.enabled ? 'ENABLED' : 'DISABLED')
+                            : 'NOT CONFIGURED'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold ${
+                          gatewayForm.stripe.mode === 'LIVE'
+                            ? 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            : 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                        }`}>
+                          Mode: {gatewayForm.stripe.mode}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                      Global payment infrastructure supporting international Visa, MasterCard, Amex, Apple Pay, Google Pay, and multi-currency billing.
+                    </p>
+
+                    {/* Inputs */}
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Publishable Key ({gatewayForm.stripe.mode === 'LIVE' ? 'pk_live_...' : 'pk_test_...'})
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="pk_test_xxxxxxxxxxxxxxxx"
+                          value={gatewayForm.stripe.keyId}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            stripe: { ...prev.stripe, keyId: e.target.value }
+                          }))}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Secret Key ({gatewayForm.stripe.mode === 'LIVE' ? 'sk_live_...' : 'sk_test_...'})
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showSecrets['stripe_secret'] ? 'text' : 'password'}
+                            placeholder="Enter Stripe Secret Key"
+                            value={gatewayForm.stripe.keySecret}
+                            onChange={e => setGatewayForm(prev => ({
+                              ...prev,
+                              stripe: { ...prev.stripe, keySecret: e.target.value }
+                            }))}
+                            className="w-full pl-3 pr-9 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => toggleSecretVisibility('stripe_secret')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          >
+                            {showSecrets['stripe_secret'] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Webhook Secret (Optional)
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="whsec_xxxxxxxxxxxx"
+                          value={gatewayForm.stripe.webhookSecret}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            stripe: { ...prev.stripe, webhookSecret: e.target.value }
+                          }))}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">Enable Stripe:</span>
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={gatewayForm.stripe.enabled}
+                          onChange={e => setGatewayForm(prev => ({
+                            ...prev,
+                            stripe: { ...prev.stripe, enabled: e.target.checked }
+                          }))}
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className={gatewayForm.stripe.enabled ? 'font-bold text-emerald-600' : 'text-slate-400'}>
+                          {gatewayForm.stripe.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">Mode Switch:</span>
+                      <div className="flex rounded-lg p-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setGatewayForm(prev => ({ ...prev, stripe: { ...prev.stripe, mode: 'TEST' } }))}
+                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                            gatewayForm.stripe.mode === 'TEST' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500'
+                          }`}
+                        >
+                          TEST
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGatewayForm(prev => ({ ...prev, stripe: { ...prev.stripe, mode: 'LIVE' } }))}
+                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                            gatewayForm.stripe.mode === 'LIVE' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-500'
+                          }`}
+                        >
+                          LIVE
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Security Hardening and Compliance Box */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-xs space-y-3">
+                <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  PCI-DSS Security & Sensitive Key Handling
+                </h4>
+                <ul className="space-y-1.5 text-slate-600 dark:text-slate-300">
+                  <li>• <strong>No Card Data on Application Server:</strong> Payment forms never collect raw credit card CVVs or bank PINs on application storage.</li>
+                  <li>• <strong>Backend Secret Isolation:</strong> Private API secrets (`keySecret`, `webhookSecret`) are never exposed to public frontend clients.</li>
+                  <li>• <strong>Admin Only Access:</strong> Gateway settings endpoints (`/api/admin/gateways`) require administrator JWT authorization and return HTTP 403 to normal users.</li>
+                  <li>• <strong>Sandbox Safeguard:</strong> In Test Mode, transactions use simulated tokens with no real financial transfers or billing charges.</li>
+                </ul>
+              </div>
+            </div>
+          )}
           {activeAdminTab === 'analytics' && (() => {
             const data = analyticsData || metrics?.revenue || {
+              totalOrders: ordersList.length,
+              successfulPayments: ordersList.filter(o => o.paymentStatus === 'PAID').length,
+              failedPayments: ordersList.filter(o => o.paymentStatus === 'FAILED').length,
+              cancelledPayments: ordersList.filter(o => o.paymentStatus === 'CANCELLED').length,
+              demoTransactions: ordersList.filter(o => !o.gateway || o.gateway === 'sandbox' || (o.paymentMethod && o.paymentMethod.includes('Demo'))).length,
+              razorpayTestTransactions: ordersList.filter(o => o.gateway === 'razorpay' || (o.paymentMethod && o.paymentMethod.includes('Razorpay'))).length,
               totalSales: ordersList.filter(o => o.paymentStatus === 'PAID').length,
               totalRevenue: ordersList.filter(o => o.paymentStatus === 'PAID').reduce((sum, o) => sum + (o.amount || 0), 0),
               paidOrders: ordersList.filter(o => o.paymentStatus === 'PAID').length,
               failedOrders: ordersList.filter(o => o.paymentStatus === 'FAILED').length,
+              pendingOrders: ordersList.filter(o => o.paymentStatus === 'PENDING').length,
+              cancelledOrders: ordersList.filter(o => o.paymentStatus === 'CANCELLED').length,
               premiumBooksSold: ordersList.filter(o => o.paymentStatus === 'PAID').length,
               topPurchasedBooks: [],
               monthlyCharts: [
@@ -1684,6 +2665,13 @@ export const AdminPage: React.FC = () => {
                 { month: 'Sep 2026', sales: 32, revenue: 3168 },
               ],
             };
+
+            const totalOrdersCount = data.totalOrders ?? ordersList.length;
+            const successfulCount = data.successfulPayments ?? data.paidOrders ?? ordersList.filter(o => o.paymentStatus === 'PAID').length;
+            const failedCount = data.failedPayments ?? data.failedOrders ?? ordersList.filter(o => o.paymentStatus === 'FAILED').length;
+            const cancelledCount = data.cancelledPayments ?? data.cancelledOrders ?? ordersList.filter(o => o.paymentStatus === 'CANCELLED').length;
+            const demoTxnCount = data.demoTransactions ?? ordersList.filter(o => !o.gateway || o.gateway === 'sandbox' || (o.paymentMethod && o.paymentMethod.includes('Demo'))).length;
+            const razorpayTxnCount = data.razorpayTestTransactions ?? ordersList.filter(o => o.gateway === 'razorpay' || (o.paymentMethod && o.paymentMethod.includes('Razorpay'))).length;
 
             const monthlyCharts = (data.monthlyCharts && data.monthlyCharts.length > 0)
               ? data.monthlyCharts
@@ -1713,53 +2701,75 @@ export const AdminPage: React.FC = () => {
               <div className="space-y-8">
                 <div>
                   <h2 className="font-serif text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                    Premium Book Revenue & Sales Analytics
+                    Payment & Order Analytics
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Live financial metrics calculated exclusively from verified PAID orders.
+                    Live metrics tracking payment statuses, channel breakdown, and test sandbox transactions.
                   </p>
                 </div>
 
-                {/* Requirement 11 KPI Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                {/* Phase 10B Notice on Test/Demo Transactions */}
+                <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 flex items-start gap-3">
+                  <Info className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold">Test Mode & Sandbox Accounting:</strong> Transactions conducted via Demo Sandbox and Razorpay Test Mode are segregated and recorded as demonstration volume. Real money settlements require live gateway activation.
+                  </div>
+                </div>
+
+                {/* Requirement 9: Payment Analytics 6-Card Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+                  {/* 1. Total Orders */}
                   <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Sales</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Orders</span>
                     <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
-                      {data.totalSales}
+                      {totalOrdersCount}
                     </div>
-                    <span className="text-[11px] text-emerald-600 font-medium">Orders completed</span>
+                    <span className="text-[11px] text-slate-500">All student checkouts</span>
                   </div>
 
+                  {/* 2. Successful Payments */}
                   <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500">Total Revenue</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500">Successful Payments</span>
                     <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums">
-                      ₹{Number(data.totalRevenue).toLocaleString()}
+                      {successfulCount}
                     </div>
-                    <span className="text-[11px] text-slate-400">Paid volume gross</span>
+                    <span className="text-[11px] text-emerald-600 font-medium">PAID / Access Granted</span>
                   </div>
 
+                  {/* 3. Failed Payments */}
                   <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">Paid Orders</span>
-                    <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1 tabular-nums">
-                      {data.paidOrders}
-                    </div>
-                    <span className="text-[11px] text-slate-400">100% Fulfilled</span>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-500">Failed Orders</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-500">Failed Payments</span>
                     <div className="text-2xl font-bold text-rose-600 dark:text-rose-400 mt-1 tabular-nums">
-                      {data.failedOrders}
+                      {failedCount}
                     </div>
-                    <span className="text-[11px] text-slate-400">Declined/Unsettled</span>
+                    <span className="text-[11px] text-slate-400">Declined / Errors</span>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs col-span-2 sm:col-span-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">Premium Books Sold</span>
+                  {/* 4. Cancelled Payments */}
+                  <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">Cancelled Payments</span>
                     <div className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1 tabular-nums">
-                      {data.premiumBooksSold ?? data.totalSales}
+                      {cancelledCount}
                     </div>
-                    <span className="text-[11px] text-slate-400">Active student licenses</span>
+                    <span className="text-[11px] text-slate-400">User Dismissed</span>
+                  </div>
+
+                  {/* 5. Demo Transactions */}
+                  <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">Demo Transactions</span>
+                    <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1 tabular-nums">
+                      {demoTxnCount}
+                    </div>
+                    <span className="text-[11px] text-slate-400">Sandbox Simulator</span>
+                  </div>
+
+                  {/* 6. Razorpay Test Transactions */}
+                  <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-500">Razorpay Test Txns</span>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1 tabular-nums">
+                      {razorpayTxnCount}
+                    </div>
+                    <span className="text-[11px] text-slate-400">Verified Test Key</span>
                   </div>
                 </div>
 
@@ -1877,7 +2887,152 @@ export const AdminPage: React.FC = () => {
             );
           })()}
 
-          {/* TAB 8: SECURITY SETTINGS */}
+          {/* TAB 8: AI CONFIGURATION & ANALYTICS (Requirement 14 & 17) */}
+          {activeAdminTab === 'ai-settings' && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-950/80 border border-purple-200 dark:border-purple-800 text-xs font-bold text-purple-700 dark:text-purple-300 mb-2">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Phase 8 · Gemini AI Discovery & Assistant Engine</span>
+                </div>
+                <h2 className="font-serif text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                  AI System Controls & Usage Analytics
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Manage server-side Gemini AI features, global availability toggle, and monitor real-time AI requests.
+                </p>
+              </div>
+
+              {/* Status and Toggle Card */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                      Global AI Assistant Status
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-md">
+                      When enabled, users enjoy smart search, personalized book recommendations, book assistant Q&A, and reader summaries. If disabled, bookstore continues seamlessly with rule-based fallback.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                      aiAnalyticsData?.status?.enabled
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                    }`}>
+                      {aiAnalyticsData?.status?.enabled ? 'AI ACTIVE' : 'AI DISABLED'}
+                    </span>
+
+                    <button
+                      type="button"
+                      disabled={aiToggleLoading}
+                      onClick={() => handleToggleAI(!aiAnalyticsData?.status?.enabled)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                        aiAnalyticsData?.status?.enabled
+                          ? 'bg-rose-600 hover:bg-rose-700'
+                          : 'bg-indigo-600 hover:bg-indigo-700'
+                      }`}
+                    >
+                      {aiToggleLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{aiAnalyticsData?.status?.enabled ? 'Disable AI' : 'Enable AI'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Configuration Parameters Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-400 block mb-1">AI Provider</span>
+                    <strong className="text-slate-900 dark:text-white text-sm block">Google Gen AI (Gemini)</strong>
+                    <span className="text-[11px] text-slate-500">Official @google/genai SDK</span>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-400 block mb-1">Active Model</span>
+                    <strong className="text-indigo-600 dark:text-indigo-400 font-mono text-sm block">gemini-3.8-flash</strong>
+                    <span className="text-[11px] text-slate-500">Optimized for speed & reasoning</span>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-400 block mb-1">API Configuration</span>
+                    <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold text-sm">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{aiAnalyticsData?.status?.configured ? 'Configured & Active' : 'Not Configured'}</span>
+                    </div>
+                    <span className="text-[11px] text-slate-500">Key secured on backend</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Usage Analytics Counters (Requirement 17) */}
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-3">
+                  AI Operational Usage Analytics
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-400 block">Total Requests</span>
+                    <strong className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
+                      {aiAnalyticsData?.totalRequests ?? 0}
+                    </strong>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-400 block">Recommendations</span>
+                    <strong className="text-xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                      {aiAnalyticsData?.recommendationsCount ?? 0}
+                    </strong>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-400 block">Smart Searches</span>
+                    <strong className="text-xl font-bold text-purple-600 dark:text-purple-400 tabular-nums">
+                      {aiAnalyticsData?.searchesCount ?? 0}
+                    </strong>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-400 block">Book Q&A Chats</span>
+                    <strong className="text-xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                      {aiAnalyticsData?.assistantQueriesCount ?? 0}
+                    </strong>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-400 block">Book Summaries</span>
+                    <strong className="text-xl font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      {aiAnalyticsData?.summariesCount ?? 0}
+                    </strong>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
+                    <span className="text-[11px] text-slate-400 block">Reader Helpers</span>
+                    <strong className="text-xl font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                      {aiAnalyticsData?.readerQueriesCount ?? 0}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Architecture & Privacy Policy Card */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-xs space-y-3">
+                <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  AI Privacy & Security Architecture
+                </h4>
+                <ul className="space-y-1.5 text-slate-600 dark:text-slate-300">
+                  <li>• <strong>No Hallucinations:</strong> Every book recommendation and smart search result is strictly resolved against authentic database records.</li>
+                  <li>• <strong>Zero Secret Exposure:</strong> API credentials, password hashes, and tokens are NEVER sent to the AI service or exposed to browser clients.</li>
+                  <li>• <strong>Rate Limiting:</strong> Endpoints are protected by a server-side sliding window limiter (35 requests/minute per client).</li>
+                  <li>• <strong>Multilingual Engine:</strong> Native language interpretation for English, Hindi, Hinglish, and Marathi.</li>
+                  <li>• <strong>Resilient Fallback:</strong> If Gemini is offline or disabled, the application continues functioning normally with deterministic catalog filters.</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 9: SECURITY SETTINGS */}
           {activeAdminTab === 'settings' && (
             <div className="max-w-2xl mx-auto space-y-6">
               <div>
@@ -1922,7 +3077,7 @@ export const AdminPage: React.FC = () => {
       )}
 
       {/* ==================================================
-          CONFIRM DELETE MODAL (Requirement 9)
+          CONFIRM DELETE BOOK MODAL (Requirement 9)
           ================================================== */}
       {bookToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
@@ -1965,6 +3120,203 @@ export const AdminPage: React.FC = () => {
                   </>
                 ) : (
                   <span>Yes, Delete Book</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================
+          DYNAMIC CATEGORY CREATE / EDIT MODAL
+          ================================================== */}
+      {categoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl space-y-6 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <FolderTree className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                    {categoryToEdit ? `Edit Category: ${categoryToEdit.name}` : 'Add New Dynamic Category'}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Define the domain title, search slug, description, and visual category icon.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCategoryModalOpen(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCategory} className="space-y-4">
+              {/* Category Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Category Name *
+                </label>
+                <input
+                  type="text"
+                  value={categoryForm.name}
+                  onChange={e => handleCategoryNameChange(e.target.value)}
+                  placeholder="e.g. Distributed Systems & Cloud Security"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Slug Identifier */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>URL Slug *</span>
+                  <span className="text-[10px] text-slate-400 font-normal">URL identifier /category/:slug</span>
+                </label>
+                <input
+                  type="text"
+                  value={categoryForm.slug}
+                  onChange={e => setCategoryForm(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-') }))}
+                  placeholder="distributed-systems"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Academic Description
+                </label>
+                <textarea
+                  rows={2}
+                  value={categoryForm.description}
+                  onChange={e => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Summary of syllabus topics, core skills, and learning outcomes in this domain..."
+                  className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Dynamic Icon Selection Section */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Category Icon Selection *
+                </label>
+                <CategoryIconSelector
+                  selectedIcon={categoryForm.icon}
+                  onSelectIcon={iconId => setCategoryForm(prev => ({ ...prev, icon: iconId }))}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCategoryModalOpen(false)}
+                  disabled={categorySubmitting}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={categorySubmitting}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md flex items-center gap-2 cursor-pointer transition-colors disabled:opacity-60"
+                >
+                  {categorySubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Category...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{categoryToEdit ? 'Update Category' : 'Create Category'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================
+          DYNAMIC CATEGORY DELETE CONFIRMATION MODAL
+          ================================================== */}
+      {categoryDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="font-serif text-lg font-bold text-slate-900 dark:text-white">
+                Delete Category?
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Are you sure you want to remove the category <strong className="text-slate-900 dark:text-white">"{categoryDeleteModal.name}"</strong>?
+              </p>
+
+              {(() => {
+                const linked = adminBooksList.filter(
+                  b => b.category?.toLowerCase() === categoryDeleteModal.name?.toLowerCase()
+                ).length;
+                if (linked > 0) {
+                  return (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs text-left space-y-1">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <span>Cannot Delete Populated Category</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed">
+                        This category currently contains <strong>{linked} book(s)</strong>. To protect catalog integrity, please reassign or remove these books first.
+                      </p>
+                    </div>
+                  );
+                }
+                return (
+                  <p className="text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                    This category has 0 books assigned and can be safely deleted.
+                  </p>
+                );
+              })()}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCategoryDeleteModal(null)}
+                disabled={categoryDeleting}
+                className="py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteCategory}
+                disabled={
+                  categoryDeleting ||
+                  adminBooksList.some(
+                    b => b.category?.toLowerCase() === categoryDeleteModal.name?.toLowerCase()
+                  )
+                }
+                className="py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-xs font-semibold text-white transition-colors cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+              >
+                {categoryDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Yes, Delete Category</span>
                 )}
               </button>
             </div>

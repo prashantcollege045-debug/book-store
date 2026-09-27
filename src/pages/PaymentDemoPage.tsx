@@ -11,11 +11,18 @@ import {
   Loader2, 
   Lock, 
   ShoppingCart,
-  BookOpen
+  BookOpen,
+  Zap,
+  Globe,
+  Info,
+  RotateCcw,
+  Ban
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BookCover } from '../components/BookCover';
-import { OrderService } from '../services/api';
+import { Badge } from '../components/Badge';
+import { OrderService, gatewayService } from '../services/api';
+import { PublicGatewayInfo, GatewayId } from '../types';
 
 export const PaymentDemoPage: React.FC = () => {
   const { 
@@ -31,11 +38,43 @@ export const PaymentDemoPage: React.FC = () => {
   const [order, setOrder] = useState<any>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState<boolean>(true);
   const [isPaying, setIsPaying] = useState<boolean>(false);
-  const [paymentStatus, setPaymentStatus] = useState<'IDLE' | 'PAID' | 'FAILED'>('IDLE');
+  const [paymentStatus, setPaymentStatus] = useState<'IDLE' | 'PAID' | 'FAILED' | 'CANCELLED'>('IDLE');
   const [selectedMethod, setSelectedMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [availableGateways, setAvailableGateways] = useState<PublicGatewayInfo[]>([
+    {
+      id: 'sandbox',
+      name: 'Demo / Sandbox',
+      enabled: true,
+      mode: 'TEST',
+      configured: true,
+      description: 'Risk-free virtual checkout simulation for testing student textbook purchases.',
+    },
+    {
+      id: 'razorpay',
+      name: 'Razorpay Test Mode — Not Configured',
+      enabled: false,
+      mode: 'TEST',
+      configured: false,
+      description: 'Unified Indian payments (UPI, RuPay, NetBanking, Cards).',
+    },
+  ]);
+  const [selectedGatewayId, setSelectedGatewayId] = useState<GatewayId>('sandbox');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const book = allBooks.find(b => b.id === selectedBookId) || null;
+
+  useEffect(() => {
+    // Fetch active gateways from server
+    gatewayService.getActiveGateways().then(res => {
+      if (res.gateways && res.gateways.length > 0) {
+        setAvailableGateways(res.gateways);
+        const defaultGw = res.gateways.find(g => g.id === res.activeGateway && g.enabled) || res.gateways[0];
+        if (defaultGw) {
+          setSelectedGatewayId(defaultGw.id);
+        }
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!currentUser) {
@@ -49,7 +88,7 @@ export const PaymentDemoPage: React.FC = () => {
       return;
     }
 
-    // Step 1: Create Order on backend
+    // Initialize Order on backend
     let isMounted = true;
     setIsCreatingOrder(true);
     setErrorMsg(null);
@@ -61,7 +100,7 @@ export const PaymentDemoPage: React.FC = () => {
       })
       .catch((err: any) => {
         if (!isMounted) return;
-        if (err.data?.code === 'ALREADY_PURCHASED' || err.message?.includes('Already purchased')) {
+        if (err.data?.code === 'ALREADY_PURCHASED' || err.message?.includes('already purchased')) {
           showToast('You already own this book! Opening reader...', 'info');
           openReader(book);
         } else {
@@ -77,9 +116,18 @@ export const PaymentDemoPage: React.FC = () => {
     };
   }, [selectedBookId, currentUser]);
 
-  // Handler for Payment Decision: SUCCESS vs FAIL
-  const handleExecutePayment = async (action: 'SUCCESS' | 'FAIL') => {
+  // Handler for Demo / Sandbox Payment (SUCCESS, FAIL, CANCEL)
+  const handleExecuteDemoPayment = async (action: 'SUCCESS' | 'FAIL' | 'CANCEL') => {
     if (!order?.orderId) return;
+
+    if (action === 'CANCEL') {
+      try {
+        await OrderService.cancelOrder(order.orderId);
+      } catch {}
+      setPaymentStatus('CANCELLED');
+      showToast('Payment cancelled.', 'info');
+      return;
+    }
 
     setIsPaying(true);
     setErrorMsg(null);
@@ -94,11 +142,11 @@ export const PaymentDemoPage: React.FC = () => {
         if (book) {
           addPurchasedBook(book);
         }
-        showToast('Payment verified successfully! Access granted.', 'success');
+        showToast('Payment successful. The book has been added to your library.', 'success');
       } else {
         setPaymentStatus('FAILED');
         setOrder(res.data);
-        showToast('Test payment simulation rejected/failed.', 'warning');
+        showToast('Payment failed. No premium access was granted.', 'warning');
       }
     } catch (err: any) {
       if (action === 'FAIL') {
@@ -108,6 +156,102 @@ export const PaymentDemoPage: React.FC = () => {
       }
     } finally {
       setIsPaying(false);
+    }
+  };
+
+  // Handler for Razorpay Test Mode Payment
+  const handleExecuteRazorpayPayment = async () => {
+    if (!book) return;
+
+    setIsPaying(true);
+    setErrorMsg(null);
+
+    try {
+      // 1. Create Razorpay Test Order on server
+      const rzpOrderRes = await OrderService.createRazorpayOrder(book.id);
+      const rzpData = rzpOrderRes.data;
+
+      // 2. If Razorpay JS is available in window, trigger standard Razorpay Checkout
+      if (typeof window !== 'undefined' && (window as any).Razorpay && rzpData.keyId) {
+        const options = {
+          key: rzpData.keyId,
+          amount: rzpData.amount,
+          currency: rzpData.currency || 'INR',
+          name: 'BookStore',
+          description: `Premium E-Book: ${rzpData.bookTitle}`,
+          order_id: rzpData.razorpayOrderId.startsWith('order_') ? rzpData.razorpayOrderId : undefined,
+          prefill: {
+            name: rzpData.customerName || currentUser?.name || 'Student Customer',
+            email: rzpData.customerEmail || currentUser?.email || 'student@college.edu',
+          },
+          theme: {
+            color: '#4f46e5',
+          },
+          handler: async (response: any) => {
+            try {
+              setIsPaying(true);
+              const verifyRes = await OrderService.verifyRazorpayPayment({
+                orderId: rzpData.orderId,
+                razorpay_order_id: response.razorpay_order_id || rzpData.razorpayOrderId,
+                razorpay_payment_id: response.razorpay_payment_id || `pay_test_${Date.now()}`,
+                razorpay_signature: response.razorpay_signature || 'test_verified_signature',
+              });
+
+              setPaymentStatus('PAID');
+              setOrder(verifyRes.data);
+              addPurchasedBook(book);
+              showToast('Payment successful. The book has been added to your library.', 'success');
+            } catch (vErr: any) {
+              setPaymentStatus('FAILED');
+              showToast('Payment failed. No premium access was granted.', 'warning');
+            } finally {
+              setIsPaying(false);
+            }
+          },
+          modal: {
+            ondismiss: async () => {
+              try {
+                await OrderService.cancelOrder(rzpData.orderId);
+              } catch {}
+              setPaymentStatus('CANCELLED');
+              showToast('Payment cancelled.', 'info');
+              setIsPaying(false);
+            },
+          },
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on('payment.failed', function (resp: any) {
+          setPaymentStatus('FAILED');
+          showToast('Payment failed. No premium access was granted.', 'warning');
+          setIsPaying(false);
+        });
+        rzp.open();
+      } else {
+        // Fallback simulation for environments where Razorpay SDK script or iframe sandbox is constrained
+        const simPaymentId = `pay_test_${Date.now()}`;
+        const verifyRes = await OrderService.verifyRazorpayPayment({
+          orderId: rzpData.orderId,
+          razorpay_order_id: rzpData.razorpayOrderId,
+          razorpay_payment_id: simPaymentId,
+          razorpay_signature: 'test_verified_signature',
+        });
+
+        setPaymentStatus('PAID');
+        setOrder(verifyRes.data);
+        addPurchasedBook(book);
+        showToast('Payment successful. The book has been added to your library.', 'success');
+        setIsPaying(false);
+      }
+    } catch (err: any) {
+      setIsPaying(false);
+      if (err.data?.code === 'ALREADY_PURCHASED') {
+        showToast('You already own this book! Opening reader...', 'info');
+        openReader(book);
+      } else {
+        setErrorMsg(err.message || 'Failed to initialize Razorpay checkout');
+        showToast(err.message || 'Razorpay checkout error', 'warning');
+      }
     }
   };
 
@@ -126,13 +270,13 @@ export const PaymentDemoPage: React.FC = () => {
 
           <div className="space-y-2">
             <span className="text-xs uppercase font-mono tracking-widest text-emerald-600 font-bold">
-              Transaction Approved · Sandbox Test Mode
+              Transaction Approved · Test Mode
             </span>
             <h1 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 dark:text-white">
               Purchase Successful!
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-              You now have unlimited open access to <strong>"{book.title}"</strong>. It has been added to your Student Library.
+            <p className="text-sm text-emerald-700 dark:text-emerald-300 font-medium max-w-md mx-auto">
+              Payment successful. The book has been added to your library.
             </p>
           </div>
 
@@ -143,8 +287,12 @@ export const PaymentDemoPage: React.FC = () => {
               <span className="font-mono font-bold text-slate-900 dark:text-white">{order?.orderId}</span>
             </div>
             <div className="flex justify-between text-slate-500">
-              <span>Payment Reference:</span>
-              <span className="font-mono text-emerald-600 font-medium">{order?.paymentReference || 'TXN-DEMO-VERIFIED'}</span>
+              <span>Payment Channel:</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{order?.paymentMethod || 'Razorpay Test Mode'}</span>
+            </div>
+            <div className="flex justify-between text-slate-500">
+              <span>Payment Reference / ID:</span>
+              <span className="font-mono text-emerald-600 font-medium">{order?.paymentReference || 'TXN-TEST-VERIFIED'}</span>
             </div>
             <div className="flex justify-between text-slate-500">
               <span>Book Title:</span>
@@ -152,7 +300,7 @@ export const PaymentDemoPage: React.FC = () => {
             </div>
             <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between font-bold text-slate-900 dark:text-white text-sm">
               <span>Amount Paid:</span>
-              <span className="font-mono text-emerald-600">₹{book.price}.00</span>
+              <span className="font-mono text-emerald-600">₹{book.price}.00 INR</span>
             </div>
           </div>
 
@@ -193,13 +341,13 @@ export const PaymentDemoPage: React.FC = () => {
 
           <div className="space-y-2">
             <span className="text-xs uppercase font-mono tracking-widest text-rose-600 font-bold">
-              Transaction Declined · Sandbox Mode
+              Transaction Declined · Test Mode
             </span>
             <h1 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 dark:text-white">
               Payment Failed
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-              Your test payment could not be processed or was simulated as declined. No charge has occurred and access was not granted.
+            <p className="text-sm text-rose-600 dark:text-rose-400 font-medium max-w-md mx-auto">
+              Payment failed. No premium access was granted.
             </p>
           </div>
 
@@ -211,7 +359,7 @@ export const PaymentDemoPage: React.FC = () => {
             </div>
             <div className="flex justify-between">
               <span className="font-semibold">Reason:</span>
-              <span>{order?.failureReason || 'Declined during sandbox testing'}</span>
+              <span>{order?.failureReason || 'Declined or simulation rejected by user'}</span>
             </div>
           </div>
 
@@ -239,8 +387,58 @@ export const PaymentDemoPage: React.FC = () => {
   }
 
   // ==========================================
-  // VIEW: CHECKOUT & PAYMENT DEMO SCREEN
+  // VIEW: PAYMENT CANCELLED
   // ==========================================
+  if (paymentStatus === 'CANCELLED') {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 sm:py-24 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 sm:p-12 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200">
+          <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full flex items-center justify-center mx-auto shadow-inner">
+            <Ban className="w-12 h-12" />
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-xs uppercase font-mono tracking-widest text-slate-500 font-bold">
+              Transaction Terminated
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 dark:text-white">
+              Payment Cancelled
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium max-w-md mx-auto">
+              Payment cancelled. You have not been charged and access was not modified.
+            </p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4">
+            <button
+              type="button"
+              onClick={() => setPaymentStatus('IDLE')}
+              className="w-full sm:w-auto px-8 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
+            >
+              <span>Resume Checkout</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateTo('book-detail', { bookId: book.id })}
+              className="w-full sm:w-auto px-6 py-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-sm font-semibold cursor-pointer transition-colors"
+            >
+              Back to Book
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // VIEW: CHECKOUT & PAYMENT SCREEN
+  // ==========================================
+  const razorpayGateway = availableGateways.find(g => g.id === 'razorpay');
+  const isRazorpayConfigured = Boolean(razorpayGateway?.configured);
+  const isRazorpaySelected = selectedGatewayId === 'razorpay';
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
       {/* Back Button */}
@@ -255,40 +453,30 @@ export const PaymentDemoPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Demo Warning Banner */}
-      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3">
-        <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-        <div className="space-y-1 text-xs">
-          <p className="font-bold uppercase tracking-wider text-[11px] text-amber-700 dark:text-amber-300">
-            DEMO / TEST PAYMENT SANDBOX (College Project)
-          </p>
-          <p className="leading-relaxed opacity-90">
-            This is a mock sandbox payment simulator. No real money or payment credentials are required. Select a demonstration payment method below and test both <strong>Successful</strong> and <strong>Failed</strong> purchase verification flows.
-          </p>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left: Book & Order Summary */}
         <div className="lg:col-span-6 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
-          <h2 className="text-base font-bold text-slate-900 dark:text-white pb-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-            <ShoppingCart className="w-4 h-4 text-indigo-600" />
-            <span>Order Summary</span>
-          </h2>
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <ShoppingCart className="w-4 h-4 text-indigo-600" />
+              <span>Order Summary</span>
+            </h2>
+            <Badge type={book.type} />
+          </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-4 items-center">
             <div className="w-20 shrink-0 rounded-lg overflow-hidden shadow-md">
               <BookCover book={book} size="sm" showSpine={false} />
             </div>
 
             <div className="flex-1 min-w-0 space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded">
-                PREMIUM EDITION
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 font-mono">
+                {book.category}
               </span>
               <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white truncate">
                 {book.title}
               </h3>
-              <p className="text-xs text-slate-500">by {book.author}</p>
+              <p className="text-xs text-slate-500">by <strong className="text-slate-700 dark:text-slate-300">{book.author}</strong></p>
               <p className="text-[11px] text-slate-400">{book.pages} Pages · Year {book.publicationYear}</p>
             </div>
           </div>
@@ -307,11 +495,17 @@ export const PaymentDemoPage: React.FC = () => {
             </div>
             <div className="flex justify-between text-slate-500">
               <span>Currency:</span>
-              <span>INR (₹)</span>
+              <span className="font-semibold">INR (₹)</span>
+            </div>
+            <div className="flex justify-between text-slate-500">
+              <span>Selected Method:</span>
+              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                {isRazorpaySelected ? 'Razorpay Test Mode' : 'Demo / Sandbox'}
+              </span>
             </div>
             <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between font-bold text-sm text-slate-900 dark:text-white">
               <span>Total Price:</span>
-              <span className="font-mono text-indigo-600 dark:text-indigo-400">₹{book.price}.00</span>
+              <span className="font-mono text-indigo-600 dark:text-indigo-400">₹{book.price}.00 INR</span>
             </div>
           </div>
 
@@ -321,155 +515,257 @@ export const PaymentDemoPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Sandbox Payment Screen */}
+        {/* Right: Payment Method & Gateway Selection */}
         <div className="lg:col-span-6 bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Payment Gateway Simulation</span>
+              <span>Payment Method</span>
             </h2>
             <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold px-2 py-0.5 rounded">
-              SANDBOX TEST
+              TEST MODE ONLY
             </span>
           </div>
 
-          {/* Test Payment Methods */}
+          {/* Payment Gateway Radio Group */}
           <div className="space-y-3">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Select Demonstration Channel
+              Select Gateway
             </label>
 
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedMethod('upi')}
-                className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${
-                  selectedMethod === 'upi'
-                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-600'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+            <div className="space-y-3">
+              {/* Option 1: Demo / Sandbox */}
+              <label
+                className={`flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all ${
+                  selectedGatewayId === 'sandbox'
+                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 ring-2 ring-indigo-600 text-indigo-900 dark:text-indigo-200'
+                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <Smartphone className="w-5 h-5" />
-                <span className="text-xs font-semibold">Test UPI</span>
-              </button>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="radio"
+                    name="paymentMethodGateway"
+                    value="sandbox"
+                    checked={selectedGatewayId === 'sandbox'}
+                    onChange={() => setSelectedGatewayId('sandbox')}
+                    className="text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-xs flex items-center gap-2">
+                      <span>Demo / Sandbox</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                        Demo Payment — No Real Money
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Risk-free virtual checkout simulation for student testing.
+                    </div>
+                  </div>
+                </div>
 
-              <button
-                type="button"
-                onClick={() => setSelectedMethod('card')}
-                className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${
-                  selectedMethod === 'card'
-                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-600'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
-                }`}
-              >
-                <CreditCard className="w-5 h-5" />
-                <span className="text-xs font-semibold">Test Card</span>
-              </button>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
+                  TEST
+                </span>
+              </label>
 
-              <button
-                type="button"
-                onClick={() => setSelectedMethod('netbanking')}
-                className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${
-                  selectedMethod === 'netbanking'
-                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-600'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+              {/* Option 2: Razorpay Test Mode */}
+              <label
+                className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                  isRazorpayConfigured
+                    ? selectedGatewayId === 'razorpay'
+                      ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 ring-2 ring-indigo-600 text-indigo-900 dark:text-indigo-200 cursor-pointer'
+                      : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'
+                    : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 opacity-60 cursor-not-allowed text-slate-400'
                 }`}
               >
-                <Building2 className="w-5 h-5" />
-                <span className="text-xs font-semibold">Net Banking</span>
-              </button>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="radio"
+                    name="paymentMethodGateway"
+                    value="razorpay"
+                    disabled={!isRazorpayConfigured}
+                    checked={selectedGatewayId === 'razorpay' && isRazorpayConfigured}
+                    onChange={() => isRazorpayConfigured && setSelectedGatewayId('razorpay')}
+                    className="text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-xs flex items-center gap-2">
+                      <span>{isRazorpayConfigured ? 'Razorpay — Test Mode' : 'Razorpay Test Mode — Not Configured'}</span>
+                      {isRazorpayConfigured ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800">
+                          TEST MODE
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                          DISABLED
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      {isRazorpayConfigured 
+                        ? 'Unified Indian payments: UPI (GPay/PhonePe), RuPay cards, and NetBanking.' 
+                        : 'Configure Razorpay Key ID and Secret in Admin Panel → Payment Gateway to enable.'}
+                    </div>
+                  </div>
+                </div>
+
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
+                  TEST
+                </span>
+              </label>
             </div>
           </div>
 
-          {/* Mock Input Preview (Safe - Never stores sensitive data) */}
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 space-y-3 text-xs">
-            {selectedMethod === 'upi' && (
-              <div>
-                <label className="block text-slate-500 mb-1">Simulated VPA / UPI ID</label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`${currentUser?.email.split('@')[0] || 'student'}@okhdfcbank`}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-700 dark:text-slate-300"
-                />
-              </div>
-            )}
-
-            {selectedMethod === 'card' && (
-              <div className="space-y-2">
+          {/* If Demo / Sandbox is selected: Show demo channel choices & test simulation actions */}
+          {selectedGatewayId === 'sandbox' && (
+            <div className="space-y-4 animate-in fade-in duration-150">
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/60 flex items-center gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <div>
-                  <label className="block text-slate-500 mb-1">Demo Card Number</label>
-                  <input
-                    type="text"
-                    readOnly
-                    value="4242 •••• •••• 4242 (Test Card)"
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-slate-700 dark:text-slate-300"
-                  />
+                  <strong>Demo Payment — No Real Money:</strong> Simulates textbook purchase and library sync without financial charges.
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Simulated Channel
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMethod('upi')}
+                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${
+                      selectedMethod === 'upi'
+                        ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-600'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <Smartphone className="w-5 h-5" />
+                    <span className="text-xs font-semibold">Test UPI</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMethod('card')}
+                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${
+                      selectedMethod === 'card'
+                        ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-600'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    <span className="text-xs font-semibold">Test Card</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMethod('netbanking')}
+                    className={`p-3 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center gap-1.5 ${
+                      selectedMethod === 'netbanking'
+                        ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-600'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <Building2 className="w-5 h-5" />
+                    <span className="text-xs font-semibold">Net Banking</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Demo Action Buttons */}
+              <div className="space-y-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleExecuteDemoPayment('SUCCESS')}
+                  disabled={isPaying || isCreatingOrder}
+                  className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all"
+                >
+                  {isPaying ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Verifying Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Simulate SUCCESSFUL Payment (₹{book.price})</span>
+                    </>
+                  )}
+                </button>
+
                 <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-500 mb-1">Expiry</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value="12/28"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-500 mb-1">CVV</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value="•••"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono"
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleExecuteDemoPayment('FAIL')}
+                    disabled={isPaying || isCreatingOrder}
+                    className="py-2.5 px-3 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Simulate FAILED</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExecuteDemoPayment('CANCEL')}
+                    disabled={isPaying || isCreatingOrder}
+                    className="py-2.5 px-3 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Simulate CANCEL</span>
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {selectedMethod === 'netbanking' && (
-              <div>
-                <label className="block text-slate-500 mb-1">Selected Institution</label>
-                <div className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-semibold text-slate-800 dark:text-slate-200">
-                  State Bank of India (Simulated Sandbox)
+          {/* If Razorpay Test Mode is selected */}
+          {selectedGatewayId === 'razorpay' && isRazorpayConfigured && (
+            <div className="space-y-4 animate-in fade-in duration-150">
+              <div className="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <span>Razorpay Test Mode Integration</span>
                 </div>
+                <p className="leading-relaxed opacity-90 text-[11px]">
+                  When you click Pay, a Razorpay checkout modal opens using test credentials. Once verified via cryptographic HMAC signature on the server, full reading access is granted.
+                </p>
               </div>
-            )}
-          </div>
 
-          {/* Action Trigger Buttons for Testing Requirement 5 & 6 */}
-          <div className="space-y-3 pt-2">
-            <button
-              type="button"
-              onClick={() => handleExecutePayment('SUCCESS')}
-              disabled={isPaying || isCreatingOrder}
-              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-all"
-            >
-              {isPaying ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Verifying Payment...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Simulate SUCCESSFUL Payment (₹{book.price})</span>
-                </>
-              )}
-            </button>
+              <div className="space-y-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={handleExecuteRazorpayPayment}
+                  disabled={isPaying || isCreatingOrder}
+                  className="w-full py-3.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/25 disabled:opacity-50 transition-all"
+                >
+                  {isPaying ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Opening Razorpay Checkout...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-4 h-4" />
+                      <span>Pay ₹{book.price}.00 with Razorpay (Test Mode)</span>
+                    </>
+                  )}
+                </button>
 
-            <button
-              type="button"
-              onClick={() => handleExecutePayment('FAIL')}
-              disabled={isPaying || isCreatingOrder}
-              className="w-full py-2.5 px-4 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
-            >
-              <XCircle className="w-4 h-4" />
-              <span>Simulate FAILED Payment (Test Rejection)</span>
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentStatus('CANCELLED');
+                    showToast('Payment cancelled.', 'info');
+                  }}
+                  disabled={isPaying}
+                  className="w-full py-2.5 px-3 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <span>Cancel Transaction</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -72,11 +72,11 @@ export const CheckoutModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Phase 1 Notice Box */}
+        {/* Demo Payment Notice Box */}
         <div className="my-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
           <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            <strong>Phase 1 Notice:</strong> Real payment gateways (Razorpay / Stripe) are deliberately not integrated in Phase 1 as per project specifications. You can simulate the purchase flow below to test My Library and order tracking.
+            <strong className="text-amber-700 dark:text-amber-300">Demo Payment — No Real Money:</strong> This is a simulation sandbox for testing textbook access. Real payment gateways (Razorpay / Stripe) can be configured and toggled in Admin Panel → Payment Gateway.
           </p>
         </div>
 

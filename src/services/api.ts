@@ -6,7 +6,18 @@
  * error formatting, and user-isolated data flows.
  */
 
-import { Book, Category, SortOption, UserProfile } from '../types';
+import { 
+  Book, 
+  Category, 
+  SortOption, 
+  UserProfile, 
+  PaymentGatewaySettings, 
+  PaymentGatewayConfig, 
+  PublicGatewayInfo, 
+  GatewayId,
+  RazorpayOrderResponse,
+  RazorpayVerificationPayload
+} from '../types';
 import { BOOKS_DATA } from '../data/booksData';
 import { CATEGORIES_DATA } from '../data/categoriesData';
 
@@ -204,6 +215,60 @@ export const adminService = {
   async getAnalytics() {
     const res = await request<{ success: boolean; data: any }>('/admin/analytics');
     return res.data;
+  },
+
+  async getCategories(): Promise<Category[]> {
+    const res = await request<{ success: boolean; data: Category[] }>('/admin/categories');
+    return res.data;
+  },
+
+  async createCategory(payload: { name: string; slug?: string; description?: string; icon?: string }) {
+    const res = await request<{ success: boolean; message: string; data: Category }>('/admin/categories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res;
+  },
+
+  async updateCategory(id: string, payload: { name?: string; slug?: string; description?: string; icon?: string }) {
+    const res = await request<{ success: boolean; message: string; data: Category }>(`/admin/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    return res;
+  },
+
+  async deleteCategory(id: string) {
+    const res = await request<{ success: boolean; message: string }>(`/admin/categories/${id}`, {
+      method: 'DELETE',
+    });
+    return res;
+  },
+};
+
+/**
+ * Public Dynamic Category Service
+ */
+export const categoryService = {
+  async getCategories(): Promise<Category[]> {
+    try {
+      const res = await request<{ success: boolean; data: Category[] }>('/categories');
+      return res.data;
+    } catch {
+      return CATEGORIES_DATA;
+    }
+  },
+
+  async createCategory(payload: { name: string; slug?: string; description?: string; icon?: string }) {
+    return adminService.createCategory(payload);
+  },
+
+  async updateCategory(id: string, payload: { name?: string; slug?: string; description?: string; icon?: string }) {
+    return adminService.updateCategory(id, payload);
+  },
+
+  async deleteCategory(id: string) {
+    return adminService.deleteCategory(id);
   },
 };
 
@@ -511,6 +576,126 @@ export const OrderService = {
     const res = await request<{ success: boolean; data: any }>(`/orders/${orderId}`);
     return res.data;
   },
+
+  /**
+   * Phase 10B: Create server-authorized Razorpay Test Order
+   */
+  async createRazorpayOrder(bookId: string) {
+    const res = await request<{
+      success: boolean;
+      message: string;
+      data: RazorpayOrderResponse;
+      code?: string;
+    }>('/orders/razorpay/create-order', {
+      method: 'POST',
+      body: JSON.stringify({ bookId }),
+    });
+    return res;
+  },
+
+  /**
+   * Phase 10B: Verify Razorpay Payment Signature on Server
+   */
+  async verifyRazorpayPayment(payload: RazorpayVerificationPayload) {
+    const res = await request<{
+      success: boolean;
+      message: string;
+      data: any;
+    }>('/orders/razorpay/verify-payment', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res;
+  },
+
+  /**
+   * Phase 10B: Cancel Order
+   */
+  async cancelOrder(orderId: string) {
+    const res = await request<{
+      success: boolean;
+      message: string;
+      data: any;
+    }>(`/orders/${orderId}/cancel`, {
+      method: 'POST',
+    });
+    return res;
+  },
+};
+
+/**
+ * ==================================================
+ * PHASE 10A: PAYMENT GATEWAY MANAGEMENT SERVICE
+ * ==================================================
+ */
+export const gatewayService = {
+  /**
+   * Fetch full gateway configurations (Admin only)
+   */
+  async getAdminGateways(): Promise<PaymentGatewaySettings> {
+    const res = await request<{
+      success: boolean;
+      data: PaymentGatewaySettings;
+    }>('/admin/gateways');
+    return res.data;
+  },
+
+  /**
+   * Update gateway configurations (Admin only)
+   */
+  async updateAdminGateways(payload: {
+    activeGateway?: GatewayId;
+    gateways?: Partial<Record<GatewayId, Partial<PaymentGatewayConfig>>>;
+  }): Promise<{ success: boolean; message: string; data: PaymentGatewaySettings }> {
+    const res = await request<{
+      success: boolean;
+      message: string;
+      data: PaymentGatewaySettings;
+    }>('/admin/gateways', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    return res;
+  },
+
+  /**
+   * Fetch public active gateways for checkout (Safe for all users)
+   */
+  async getActiveGateways(): Promise<{ activeGateway: GatewayId; gateways: PublicGatewayInfo[] }> {
+    try {
+      const res = await request<{
+        success: boolean;
+        data: { activeGateway: GatewayId; gateways: PublicGatewayInfo[] };
+      }>('/orders/gateways');
+      return res.data || {
+        activeGateway: 'sandbox',
+        gateways: [
+          {
+            id: 'sandbox',
+            name: 'Demo / Sandbox',
+            enabled: true,
+            mode: 'TEST',
+            configured: true,
+            description: 'Risk-free virtual checkout simulation for testing student textbook purchases.',
+          },
+        ],
+      };
+    } catch {
+      return {
+        activeGateway: 'sandbox',
+        gateways: [
+          {
+            id: 'sandbox',
+            name: 'Demo / Sandbox',
+            enabled: true,
+            mode: 'TEST',
+            configured: true,
+            description: 'Risk-free virtual checkout simulation for testing student textbook purchases.',
+          },
+        ],
+      };
+    }
+  },
 };
 
 export const CategoryService = {
@@ -522,3 +707,194 @@ export const CategoryService = {
     return Promise.resolve(CATEGORIES_DATA.find(c => c.slug === slug));
   },
 };
+
+/**
+ * ==================================================
+ * PHASE 8: AI ASSISTANT & DISCOVERY SERVICE LAYER
+ * ==================================================
+ */
+export interface AIRecommendationItem {
+  book: Book;
+  reason: string;
+  affinityScore?: number;
+  matchType: 'AI_RANKED' | 'HEURISTIC';
+}
+
+export interface AISmartSearchResponse {
+  books: Book[];
+  intent: {
+    query: string;
+    topic?: string;
+    category?: string;
+    language?: string;
+    isFree?: boolean;
+    maxPrice?: number;
+    difficulty?: string;
+    explanation: string;
+  };
+  aiPowered: boolean;
+  message?: string;
+}
+
+export interface AIBookSummary {
+  shortSummary: string;
+  keyTopics: string[];
+  keyTakeaways: string[];
+  targetAudience: string;
+  prerequisites?: string[];
+  aiPowered: boolean;
+}
+
+export const AIService = {
+  async getStatus() {
+    try {
+      const res = await request<{
+        success: boolean;
+        ai: {
+          enabled: boolean;
+          configured: boolean;
+          provider: string;
+          model: string;
+          status: string;
+        };
+      }>('/ai/status');
+      return res.ai;
+    } catch {
+      return {
+        enabled: false,
+        configured: false,
+        provider: 'Gemini',
+        model: 'gemini-3.8-flash',
+        status: 'OFFLINE',
+      };
+    }
+  },
+
+  async getRecommendations(params: {
+    currentBookId?: string;
+    readBookIds?: string[];
+    wishlistBookIds?: string[];
+    purchasedBookIds?: string[];
+    preferredCategories?: string[];
+    preferredLanguages?: string[];
+    limit?: number;
+  }): Promise<{ recommendations: AIRecommendationItem[]; aiPowered: boolean }> {
+    try {
+      const res = await request<{
+        success: boolean;
+        data: AIRecommendationItem[];
+        aiPowered: boolean;
+      }>('/ai/recommendations', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+      return {
+        recommendations: res.data || [],
+        aiPowered: Boolean(res.aiPowered),
+      };
+    } catch {
+      return { recommendations: [], aiPowered: false };
+    }
+  },
+
+  async smartSearch(query: string): Promise<AISmartSearchResponse> {
+    try {
+      const res = await request<{
+        success: boolean;
+        data: {
+          books: Book[];
+          intent: any;
+          message?: string;
+        };
+        aiPowered: boolean;
+      }>('/ai/search', {
+        method: 'POST',
+        body: JSON.stringify({ query }),
+      });
+      return {
+        books: res.data?.books || [],
+        intent: res.data?.intent || { query, explanation: 'Standard keyword results.' },
+        aiPowered: Boolean(res.aiPowered),
+        message: res.data?.message,
+      };
+    } catch (err: any) {
+      return {
+        books: [],
+        intent: { query, explanation: 'AI search temporarily unavailable.' },
+        aiPowered: false,
+        message: 'Could not connect to AI search service. Please use keyword search.',
+      };
+    }
+  },
+
+  async askBookAssistant(
+    bookId: string,
+    message: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  ): Promise<{ reply: string; bookTitle: string; aiPowered: boolean }> {
+    const res = await request<{
+      success: boolean;
+      data: {
+        reply: string;
+        bookTitle: string;
+        aiPowered: boolean;
+      };
+      aiPowered: boolean;
+    }>('/ai/book-assistant', {
+      method: 'POST',
+      body: JSON.stringify({ bookId, message, conversationHistory }),
+    });
+    return res.data;
+  },
+
+  async getBookSummary(bookId: string): Promise<AIBookSummary> {
+    const res = await request<{
+      success: boolean;
+      data: AIBookSummary;
+      aiPowered: boolean;
+    }>('/ai/summary', {
+      method: 'POST',
+      body: JSON.stringify({ bookId }),
+    });
+    return res.data;
+  },
+
+  async askReaderAssistant(params: {
+    bookId: string;
+    chapterTitle?: string;
+    snippet: string;
+    action: 'explain' | 'summarize' | 'simplify' | 'ask';
+    userQuestion?: string;
+  }): Promise<{ result: string; action: string; aiPowered: boolean }> {
+    const res = await request<{
+      success: boolean;
+      data: { result: string; action: string; aiPowered: boolean };
+      aiPowered: boolean;
+    }>('/ai/reader-assistant', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    return res.data;
+  },
+
+  async getAdminAnalytics() {
+    const res = await request<{
+      success: boolean;
+      data: any;
+    }>('/ai/admin/analytics');
+    return res.data;
+  },
+
+  async toggleAI(enabled: boolean) {
+    const res = await request<{
+      success: boolean;
+      message: string;
+      ai: any;
+    }>('/ai/admin/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+    return res;
+  },
+};
+

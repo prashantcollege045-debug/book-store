@@ -98,7 +98,45 @@ export interface LibraryItem {
   note?: string;
 }
 
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
+export type PaymentStatus = 
+  | 'PENDING' 
+  | 'PROCESSING' 
+  | 'PAID' 
+  | 'FAILED' 
+  | 'CANCELLED' 
+  | 'REFUNDED';
+
+export type GatewayId = 'sandbox' | 'razorpay' | 'stripe';
+
+export interface PaymentGatewayConfig {
+  id: GatewayId;
+  name: string;
+  enabled: boolean;
+  mode: 'TEST' | 'LIVE';
+  configured: boolean;
+  description: string;
+  supportedCurrencies?: string[];
+  keyId?: string;
+  keySecret?: string;
+  webhookSecret?: string;
+  hasKeySecret?: boolean;
+}
+
+export interface PaymentGatewaySettings {
+  activeGateway: GatewayId;
+  gateways: Record<GatewayId, PaymentGatewayConfig>;
+  updatedAt?: string;
+}
+
+export interface PublicGatewayInfo {
+  id: GatewayId;
+  name: string;
+  enabled: boolean;
+  mode: 'TEST' | 'LIVE';
+  configured: boolean;
+  description: string;
+  keyId?: string;
+}
 
 export interface OrderItem {
   id?: string;
@@ -113,9 +151,32 @@ export interface OrderItem {
   paymentStatus: PaymentStatus;
   paymentMethod?: string;
   paymentReference?: string;
+  gateway?: string;
+  isTestMode?: boolean;
+  paymentId?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
   failureReason?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface RazorpayOrderResponse {
+  orderId: string;
+  razorpayOrderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+  bookTitle: string;
+  customerName?: string;
+  customerEmail?: string;
+}
+
+export interface RazorpayVerificationPayload {
+  orderId: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
 }
 
 export interface PurchaseRecord {
@@ -125,7 +186,7 @@ export interface PurchaseRecord {
   date: string;
   amount: number;
   paymentMethod: string;
-  status: 'Completed' | 'Processing' | 'PAID' | 'FAILED';
+  status: 'Completed' | 'Processing' | 'PAID' | 'FAILED' | 'REFUNDED';
 }
 
 export interface UserProfile {
@@ -146,7 +207,9 @@ export type AdminTab =
   | 'categories'
   | 'users'
   | 'orders'
+  | 'payment-gateways'
   | 'analytics'
+  | 'ai-settings'
   | 'settings';
 
 export type ActivePage = 
@@ -163,6 +226,7 @@ export type ActivePage =
   | 'register'
   | 'profile'
   | 'admin'
+  | 'admin-payment-gateway'
   | 'reader'
   | 'checkout'
   | 'payment-demo'

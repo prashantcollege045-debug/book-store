@@ -11,6 +11,12 @@ import {
   getBookById,
   getAllOrdersForAdmin,
   getRevenueAnalytics,
+  getGatewaySettings,
+  updateGatewaySettings,
+  getAllCategoriesWithCounts,
+  createCategory,
+  updateCategory,
+  deleteCategory,
 } from '../store';
 import { upload } from '../storage';
 
@@ -440,6 +446,155 @@ router.get('/analytics', async (req: AuthenticatedRequest, res: Response): Promi
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to fetch analytics',
+    });
+  }
+});
+
+/**
+ * GET /api/admin/gateways
+ * Phase 10A: Retrieve Payment Gateway configurations (Admin only)
+ */
+router.get('/gateways', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const settings = await getGatewaySettings(true);
+    res.status(200).json({
+      success: true,
+      data: settings,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch gateway settings',
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/gateways
+ * Phase 10A: Update Payment Gateway configurations & Active Gateway (Admin only)
+ */
+router.put('/gateways', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { activeGateway, gateways } = req.body;
+    const updated = await updateGatewaySettings({ activeGateway, gateways });
+    res.status(200).json({
+      success: true,
+      message: 'Payment gateway configuration updated successfully',
+      data: updated,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to update gateway settings',
+    });
+  }
+});
+
+/**
+ * ==================================================
+ * DYNAMIC CATEGORIES MANAGEMENT (Admin Only)
+ * ==================================================
+ */
+
+/**
+ * GET /api/admin/categories
+ * List all categories with live book counts and metadata
+ */
+router.get('/categories', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const categories = await getAllCategoriesWithCounts();
+    res.status(200).json({
+      success: true,
+      data: categories,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch categories',
+    });
+  }
+});
+
+/**
+ * POST /api/admin/categories
+ * Create a new dynamic category
+ */
+router.post('/categories', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { name, slug, description, icon } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({
+        success: false,
+        message: 'Category name is required',
+      });
+      return;
+    }
+
+    const newCategory = await createCategory({
+      name: name.trim(),
+      slug: typeof slug === 'string' ? slug.trim() : undefined,
+      description: typeof description === 'string' ? description.trim() : '',
+      icon: typeof icon === 'string' ? icon.trim() : 'BookOpen',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Category "${newCategory.name}" created successfully`,
+      data: newCategory,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to create category',
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/categories/:id
+ * Update an existing category
+ */
+router.put('/categories/:id', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { name, slug, description, icon } = req.body;
+
+    const updated = await updateCategory(id, {
+      name: typeof name === 'string' ? name.trim() : undefined,
+      slug: typeof slug === 'string' ? slug.trim() : undefined,
+      description: typeof description === 'string' ? description.trim() : undefined,
+      icon: typeof icon === 'string' ? icon.trim() : undefined,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Category "${updated.name}" updated successfully`,
+      data: updated,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to update category',
+    });
+  }
+});
+
+/**
+ * DELETE /api/admin/categories/:id
+ * Delete a category (prevent deletion if books are assigned)
+ */
+router.delete('/categories/:id', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await deleteCategory(id);
+    res.status(200).json({
+      success: true,
+      message: 'Category deleted successfully',
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'Failed to delete category',
     });
   }
 });

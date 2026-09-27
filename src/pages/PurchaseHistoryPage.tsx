@@ -130,6 +130,7 @@ export const PurchaseHistoryPage: React.FC = () => {
                 <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
                   <th className="py-3 px-4">Order ID</th>
                   <th className="py-3 px-4">Book Title</th>
+                  <th className="py-3 px-4">Gateway</th>
                   <th className="py-3 px-4">Amount</th>
                   <th className="py-3 px-4">Payment Status</th>
                   <th className="py-3 px-4">Channel / Ref</th>
@@ -140,6 +141,7 @@ export const PurchaseHistoryPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                 {filteredOrders.map(ord => {
                   const book = getBookById(ord.bookId);
+                  const isDemo = ord.isDemo !== false && ord.gateway !== 'RAZORPAY' && ord.gateway !== 'STRIPE';
 
                   return (
                     <tr key={ord.orderId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
@@ -149,6 +151,18 @@ export const PurchaseHistoryPage: React.FC = () => {
 
                       <td className="py-3.5 px-4 max-w-xs truncate text-slate-800 dark:text-slate-200">
                         {ord.bookTitle}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          ord.gateway === 'RAZORPAY'
+                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200'
+                            : ord.gateway === 'STRIPE'
+                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200'
+                            : 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-200'
+                        }`}>
+                          {isDemo ? 'DEMO (TEST)' : `${ord.gateway} (TEST)`}
+                        </span>
                       </td>
 
                       <td className="py-3.5 px-4 font-bold font-mono text-slate-900 dark:text-white">
